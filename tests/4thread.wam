@@ -1,0 +1,22 @@
+get_variable X2, X1
+put_value X2, X1
+execute p/1
+get_variable X2, X1
+put_value X2, X1
+execute q/1
+allocate 1
+get_variable Y1, X1
+put_value Y1, X1
+call s/1
+put_value Y1, X1
+deallocate
+execute a/1
+get_constant b, X1
+proceed
+get_constant b, X1
+proceed
+(?/1, 1)
+(p/1, 4)
+(q/1, 7)
+(s/1, 14)
+(a/1, 16)

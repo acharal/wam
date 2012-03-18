@@ -1,0 +1,21 @@
+get_variable X3, X1
+get_variable X4, X2
+put_value X3, X1
+put_value X4, X2
+execute p/2
+allocate 1
+get_variable Y1, X1
+get_value Y1, X2
+put_value Y1, X1
+call q/1
+put_value Y1, X1
+deallocate
+execute r/1
+get_variable X2, X1
+proceed
+get_constant a, X1
+proceed
+(?/2, 1)
+(p/2, 6)
+(q/1, 14)
+(r/1, 16)

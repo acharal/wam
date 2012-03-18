@@ -1,0 +1,17 @@
+get_variable X3, X1
+put_structure f/1, X1
+unify_value X3
+put_value X3, X2
+execute p/2
+try_me_else 11
+get_structure f/1, X1
+unify_constant a
+get_constant b, X2
+proceed
+trust_me_or_fail 
+get_structure f/1, X1
+unify_constant a
+get_variable X3, X2
+proceed
+(?/1, 1)
+(p/2, 6)

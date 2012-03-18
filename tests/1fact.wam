@@ -1,0 +1,7 @@
+get_variable X2, X1
+put_value X2, X1
+execute p/1
+get_constant a, X1
+proceed
+(?/1, 1)
+(p/1, 4)

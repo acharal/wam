@@ -1,0 +1,28 @@
+execute a/0
+allocate 1
+put_variable Y1, X1
+call b/1
+put_unsafe_value Y1, X1
+deallocate
+execute e/1
+get_variable X2, X1
+put_value X2, X1
+execute e/1
+try_me_else 14
+get_constant r, X1
+proceed
+retry_me_else 18
+get_variable X2, X1
+put_value X2, X1
+execute f/1
+trust_me_or_fail 
+get_variable X2, X1
+put_value X2, X1
+execute g/1
+get_constant c, X1
+proceed
+(?/0, 1)
+(a/0, 2)
+(b/1, 8)
+(e/1, 11)
+(f/1, 22)

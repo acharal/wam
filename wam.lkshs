@@ -1,0 +1,18 @@
+Version of session file format:
+               1
+Time of storage:
+               "Fri Mar 16 17:58:55 EET 2012"
+Layout:        VerticalP (TerminalP {paneGroups = fromList [], paneTabs = Just TopP, currentPage = -1, detachedId = Nothing, detachedSize = Nothing}) (HorizontalP (TerminalP {paneGroups = fromList [("Browser",HorizontalP (TerminalP {paneGroups = fromList [], paneTabs = Nothing, currentPage = 0, detachedId = Nothing, detachedSize = Nothing}) (HorizontalP (TerminalP {paneGroups = fromList [], paneTabs = Nothing, currentPage = 0, detachedId = Nothing, detachedSize = Nothing}) (TerminalP {paneGroups = fromList [], paneTabs = Nothing, currentPage = 0, detachedId = Nothing, detachedSize = Nothing}) 515) 68)], paneTabs = Just BottomP, currentPage = 0, detachedId = Nothing, detachedSize = Nothing}) (TerminalP {paneGroups = fromList [], paneTabs = Nothing, currentPage = 0, detachedId = Nothing, detachedSize = Nothing}) 671) 830
+Population:    [(Just (ErrorsSt ErrorsState),[SplitP RightP,SplitP TopP]),(Just (InfoSt (InfoState Nothing)),[SplitP RightP,SplitP TopP,GroupP "Browser",SplitP BottomP,SplitP BottomP]),(Just (LogSt LogState),[SplitP RightP,SplitP BottomP]),(Just (ModulesSt (ModulesState 349 (SystemScope,False) (Nothing,Nothing) (ExpanderState {packageExp = ([],[]), packageExpNoBlack = ([],[]), packageDExp = ([],[]), packageDExpNoBlack = ([],[]), workspaceExp = ([],[]), workspaceExpNoBlack = ([],[]), workspaceDExp = ([],[]), workspaceDExpNoBlack = ([],[]), systemExp = ([],[]), systemExpNoBlack = ([],[])}))),[SplitP RightP,SplitP TopP,GroupP "Browser",SplitP BottomP,SplitP TopP]),(Just (WorkspaceSt WorkspaceState),[SplitP RightP,SplitP TopP,GroupP "Browser",SplitP TopP])]
+Window size:   (1440,876)
+Completion size:
+               (750,400)
+Workspace:     Just "/home/angel/edu/phd/wam/wam.lkshw"
+Active pane:   Nothing
+Toolbar visible:
+               True
+FindbarState:  (True,FindState {entryStr = "", entryHist = [""], replaceStr = "", replaceHist = [], caseSensitive = False, entireWord = False, wrapAround = False, regex = False, lineNr = 1})
+Recently opened files:
+               ["/home/angel/edu/phd/wam/WAM.hs","/home/angel/edu/phd/wam/Main.hs","/home/angel/edu/phd/wam/PrologParser.hs","/home/angel/projects/hopes-modular/src/utils/Language/Hopl/Pretty.hs","/home/angel/projects/hopes/src/basic/KnowledgeBase.hs","/home/angel/projects/hopes/src/basic/Syntax.hs","/home/angel/projects/hopes/src/basic/Lang.hs","/home/angel/projects/hopes/src/parser/Lexer.hs","/home/angel/projects/hopes/src/checker/WellForm.hs","/home/angel/projects/hopes/src/checker/TypeCheck.hs","/home/angel/projects/hopes/src/checker/Restrict.hs","/home/angel/projects/hopes/src/checker/Tc.hs"]
+Recently opened workspaces:
+               ["/home/angel/leksah.lkshw"]

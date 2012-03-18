@@ -21,6 +21,7 @@ import WAM
 import IO
 import Data.List (nub, delete, (\\))
 import Data.Maybe (fromJust)
+import Debug.Trace
 
 perms :: Clause -> [String]
 perms (t, ts) =
@@ -70,7 +71,7 @@ extendTable ts tbl perms n =
                            extendTableAux as ts rs (extendTblNewVar tbl perms rs n v)
         inTable v tbl = v `elem` (map fst tbl)
     in extendTableAux [] ts xs tbl
-    where xs = map (\i -> Temp i) [1..length ts]
+    where xs = map (\i -> Temp i) (reverse [1..length ts])
 
 extendTblNewVar tbl perms r n v | (v `elem` perms) = (v, newPermVar tbl):tbl
                                 | otherwise = (v, newTempVar tbl r n):tbl
@@ -123,11 +124,12 @@ wamCompileLit h (t:ts) (r:rs) tbl perms u n =
                                 in (opVariable, [z,r]) : (wamCompileLit h ts rs tbl' perms u n)
 
 wamCompileHeadLit ts perms n = wamCompileLit True ts xs [] perms [] n
-   where xs = map (\i -> Temp i) [1..(length ts)]
+   where n' = length ts
+         xs = map (\i -> Temp i) (reverse [1..n'])
 
 wamCompileGoalLit ts tbl perms u = wamCompileLit False ts xs tbl perms u n
    where n = length ts
-         xs = map (\i -> Temp i) [1..n]
+         xs = map (\i -> Temp i) (reverse [1..n])
 
 wamCompileTerm h [] ts rs tbl perms u n =  wamCompileLit h ts rs tbl perms u n
 wamCompileTerm h (a:as) ts rs tbl perms u n =
@@ -204,5 +206,5 @@ wamCompileProgram (g,p) =
        a :: Int -> [Int] -> [Int]
        a start [_] = [start]
        a start (n:x) = start:(a (start + n) x)
-   in P (zip ps $ a 1 (map length cs)) (concat cs)
+   in P (reverse vg) (zip ps $ a 1 (map length cs)) (concat cs)
 

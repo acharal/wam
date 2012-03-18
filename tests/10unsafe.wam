@@ -3,16 +3,16 @@ put_value X2, X1
 execute p/1
 allocate 2
 get_variable Y1, X1
-put_variable Y2, X1
-put_value Y1, X2
+put_variable Y2, X2
+put_value Y1, X1
 call q/2
-put_unsafe_value Y2, X1
-put_value Y1, X2
+put_unsafe_value Y2, X2
+put_value Y1, X1
 deallocate
 execute r/2
 allocate 2
-get_variable Y1, X1
-get_variable Y2, X2
+get_variable Y1, X2
+get_variable Y2, X1
 put_value Y1, X1
 call t/1
 put_value Y2, X1
@@ -20,8 +20,8 @@ call t/1
 put_value Y1, X1
 deallocate
 execute v/1
-get_variable X3, X1
-get_variable X4, X2
+get_variable X3, X2
+get_variable X4, X1
 proceed
 get_variable X2, X1
 proceed

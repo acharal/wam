@@ -40,7 +40,7 @@ type WamInstr = (WamOp, [WamArg])
 data WamRegister = Perm Int | Temp Int  deriving Show
 
 -- WAM Program
-data WamProgram = P [((String,Int),WamAddress)] [WamInstr]
+data WamProgram = P [String] [((String,Int),WamAddress)] [WamInstr]
 
 
 -- dump
@@ -75,7 +75,7 @@ dumpRegs xs = a $ map dumpRegister xs
 dumpIndex [] = ""
 dumpIndex (((s,n),i):idx) = "(" ++ s ++ "/" ++ show n ++ ", " ++ show i ++ ")\n" ++ dumpIndex idx
 
-dumpWAMProgram (P idx ws) = concatMap (\w -> dumpWamCommand w ++ "\n") ws ++ dumpIndex idx
+dumpWAMProgram (P _ idx ws) = concatMap (\w -> dumpWamCommand w ++ "\n") ws ++ dumpIndex idx
 
 
 

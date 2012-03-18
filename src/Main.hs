@@ -92,6 +92,7 @@ main = do
                 ho <- openFile out WriteMode
                 hPutStr ho $ dumpWAMProgram compiled
                 hClose ho
+    let (P gs _ _) = compiled
 
     when (onlycompile == False) $ do
-        evalWam $ (wamExecute compiled) >>= \is -> mapM_ (\i -> dumpCell i >>= liftIO.putStrLn) is
+        evalWam $ (wamExecute compiled) >>= \is -> mapM_ (\(v,i) -> dumpCell i >>= \st -> liftIO (putStrLn (v ++ "=" ++ st))) (zip gs is)

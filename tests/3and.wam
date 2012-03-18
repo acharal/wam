@@ -1,6 +1,6 @@
 allocate 1
-get_variable X3, X1
-get_variable Y1, X2
+get_variable X3, X2
+get_variable Y1, X1
 put_value X3, X1
 call p/1
 put_value Y1, X1

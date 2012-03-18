@@ -1,23 +1,23 @@
-get_variable X4, X1
-get_variable X5, X2
-put_structure f/1, X1
+get_variable X4, X2
+get_variable X5, X1
+put_structure f/1, X3
 unify_constant q
 put_structure h/2, X2
 unify_value X4
 unify_value X5
-put_value X5, X3
+put_value X5, X1
 execute p/3
-get_variable X4, X1
+get_variable X4, X3
 get_structure h/2, X2
 unify_constant n
 unify_variable X5
-get_constant a, X3
-put_value X4, X1
-put_value X5, X2
+get_constant a, X1
+put_value X4, X2
+put_value X5, X1
 execute m/2
-get_structure f/1, X1
+get_structure f/1, X2
 unify_constant q
-get_variable X3, X2
+get_variable X2, X1
 proceed
 (?/2, 1)
 (p/3, 10)

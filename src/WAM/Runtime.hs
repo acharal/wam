@@ -124,7 +124,7 @@ hasChoicePoint = do
     b <- gets reg_b
     return (b > 1000)
 
-wamExecute (P index instr) =
+wamExecute (P _ index instr) =
     let
         ((g_name, g_arity),g_addr) = case filter (\((x,i),_) -> x == "?") index of
                                                 [] -> error "goal not found"

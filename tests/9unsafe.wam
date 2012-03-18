@@ -1,11 +1,11 @@
-get_variable X3, X1
-get_variable X4, X2
-put_value X3, X1
-put_value X4, X2
+get_variable X3, X2
+get_variable X4, X1
+put_value X3, X2
+put_value X4, X1
 execute p/2
 allocate 1
-get_variable Y1, X1
-get_value Y1, X2
+get_variable Y1, X2
+get_value Y1, X1
 put_value Y1, X1
 call q/1
 put_value Y1, X1

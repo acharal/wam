@@ -30,6 +30,7 @@ data WamCell =
      | Var WamAddress           -- REF n
      | Str WamAddress           -- STR n
      | Cons String              -- CONS s
+     | App WamAddress Int       -- APP n m
      | Addr WamAddress
      deriving (Eq, Show)
 
@@ -252,6 +253,22 @@ execute (q,n) = do
         Nothing -> backtrack
 
 call q = set_return_address >> execute q
+
+execute_variable r n =
+    let execute' x n = do
+            dx <- deref x
+            case dx of
+                (App a m) -> do
+                    app <- get_cell a
+                    mapM_ (\i -> restore_arg (a+m+1-i) (n+i)) [1..m]
+                    execute' app (n+m)
+                (Struct (f,l)) -> execute (f,l)
+                (Var v) -> error "Uninstantiated higher order variable"
+    in do
+        x <- get_content r
+        execute' x n
+
+call_variable x n = set_return_address >> execute_variable x n
 
 bind' (Temp i) x = set_temp i x
 bind' (Perm i) x = get_perm_real_addr i >>= \a -> bind a x

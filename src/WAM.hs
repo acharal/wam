@@ -30,6 +30,8 @@ data WamOp =
    | RetryMeElse WamAddress
    | TrustMe
    | Backtrack
+   | CallVariable
+   | ExecuteVariable
    deriving Show
 
 type WamArg = WamRegister

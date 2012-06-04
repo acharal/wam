@@ -18,8 +18,9 @@ import Prolog
 import WAM
 import WAM.Compile
 import WAM.Runtime
-import IO
-import System
+import System.IO
+import System.Exit
+import System.Environment
 import System.Console.GetOpt
 import Paths_wam
 import Data.Version

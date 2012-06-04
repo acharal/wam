@@ -6,7 +6,7 @@ license-file: ""
 copyright:
 maintainer: Angelos Charalambidis <a.charalambidis@di.uoa.gr>
 build-depends: array -any, transformers -any, mtl -any,
-               parsec -any, base -any, haskell98 -any
+               parsec -any, base -any
 stability: Experimental
 homepage:
 package-url:

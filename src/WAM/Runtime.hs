@@ -22,7 +22,7 @@ import WAM
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.State
-import IO
+import System.IO
 import Data.Array.IO
 
 data WamCell =

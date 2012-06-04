@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 --
--- Module      :  Main
+-- Module      :  Prolog
 -- Copyright   :
 -- License     :  GPL Nothing
 --
@@ -17,10 +17,12 @@ module Prolog where
 import Text.ParserCombinators.Parsec
 import Data.List (nub)
 
-data Term    =  T (String, [Term]) | V String deriving Show
+data Term    =  T (String, [Term]) | V2 (String, [Term]) | V String deriving (Show, Eq)
 type Clause  = (Term, [Term])
 type Goal = [Term]
 type Program = (Goal,[Clause])
+
+data Type = TypeO | TypeI | F Type Type deriving Show
 
 varsTerm t = nub $ vars' t
     where vars' (T (_, ts)) = concatMap vars' ts
@@ -34,6 +36,23 @@ preds cs =  nub $ map (\(T (s,args),_) -> (s, length args)) cs
 
 defs cs p =  filter isOfPred cs where isOfPred (T (s,_),_) = s == p
 
+-- types
+
+order (TypeO) = 0
+order (TypeI) = 0
+order (F t1 t2) = max (1 + (order t1)) (order t2)
+
+typesVarsClause (t, ts) tysig = typesVars t TypeO tysig
+
+-- typesVars :: -> Type ->  [(String, Type)]
+typesVars (T (s, args)) ty tysig =
+    let argTy (F t1 t2) = t1:(argTy t2)
+        argTy _ = []
+    in case lookup s tysig of
+        Just funty -> concatMap (\(a,t) -> typesVars a t tysig) $ zip args (argTy funty)
+        Nothing -> []-- error $ "cannot find type for " ++ s
+typesVars (V v) ty tysig = [(v,ty)]
+
 -- Simple Prolog Parse Combinators
 
 schar c = char c >> spaces
@@ -42,7 +61,8 @@ atom = lower >>= \x -> many alphaNum >>= \xs -> return (x:xs)
 
 variable = upper >>= \x -> many alphaNum >>= \xs -> return (V (x:xs))
 
-struct = atom >>= \a -> arguments >>= \ts -> return (T (a, ts))
+struct = (atom >>= \a -> arguments >>= \ts -> return (T (a, ts))) <|>
+         (variable >>= \(V s) -> arguments >>= \ts -> return (if ts == [] then (V s) else (V2 (s, ts))))
 
 list = schar '[' >> terms >>= \ts -> listTail >>= \t -> return $ makeLst ts t
    where makeLst [] cdr = cdr
@@ -53,7 +73,7 @@ listTail = (schar '|' >> term >>= \t -> schar ']' >> return t) <|> (schar ']' >>
 arguments = ((schar '(' >> terms >>= \ls -> schar ')' >> return ls)) <|>
             (spaces >> return [])
 
-term = variable <|> struct <|> list
+term = struct <|> variable <|> list
 
 terms :: Parser [Term]
 terms = sepBy term (schar ',')
@@ -73,6 +93,25 @@ clauses = many clause
 comment :: Parser ()
 comment = (char '%' >> skipMany anyToken)
 
+typ = typ1 `chainr1` (do { spaces; string "->"; spaces; return F})
+    where typ1 =  grtype <|> (schar '(' >> spaces >> typ >>= \t -> schar ')' >> return t)
+          grtype = typo <|> typi
+          typo = string "o" >> return TypeO
+          typi = string "i" >> return TypeI
+
+
+typsig = do
+    a <- atom
+    spaces
+    string "::"
+    spaces
+    t <- typ
+    schar '.'
+    return (a,t)
+
+
 prolog = goal >>= \g ->  clauses >>= \cs -> return (g, cs)
+hoprolog = many typsig >>= \ts -> spaces >> prolog >>= \prog -> return (ts, prog)
 
 parseprolog = parse prolog
+parsehoprolog = parse hoprolog

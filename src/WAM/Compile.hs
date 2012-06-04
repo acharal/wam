@@ -18,10 +18,17 @@ module WAM.Compile (
 
 import Prolog
 import WAM
-import IO
+import System.IO
 import Data.List (nub, delete, (\\))
 import Data.Maybe (fromJust)
 import Debug.Trace
+
+
+import Control.Monad
+import Control.Monad.Trans.State
+
+-- type WAMCompile m a = StateT WamCompileState m a
+
 
 perms :: Clause -> [String]
 perms (t, ts) =

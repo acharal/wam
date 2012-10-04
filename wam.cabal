@@ -1,21 +1,26 @@
-name: wam
-version: 0.0.1
-build-type: Simple
-license: GPL
-license-file: ""
-copyright:
-maintainer: Angelos Charalambidis <a.charalambidis@di.uoa.gr>
+name: 		    wam
+version: 	    0.0.1
+build-type: 	Simple
+license: 	    GPL
+license-file: 	LICENSE
+synopsis:       Simple Prolog Compiler to WAM
+description:
+    A simple Prolog compiler to WAM
+
+copyright: 	    2012 Angelos Charalambidis
+maintainer: 	Angelos Charalambidis <a.charalambidis@di.uoa.gr>
+author:		    Angelos Charalambidis <a.charalambidis@di.uoa.gr>
+stability:      Experimental
+category:       Compilers/Interpreters
+homepage:       https://github.com/acharal/wam
+bug-reports:    https://github.com/acharal/wam/issues
+
 build-depends: array -any, transformers -any, mtl -any,
                parsec -any, base -any, pretty -any
-stability: Experimental
-homepage:
 package-url:
-bug-reports:
-synopsis: Simple Prolog Compiler to WAM
-description: A simple Prolog compiler to WAM
-category: Compilers/Interpreters
-author: Angelos Charalambidis <a.charalambidis@di.uoa.gr>
-tested-with:
+
+
+tested-with: 
 data-files:
 data-dir: ""
 extra-source-files:
@@ -24,28 +29,14 @@ extra-tmp-files:
 executable: wam
 main-is: Main.hs
 buildable: True
-build-tools:
-cpp-options:
-cc-options:
-ld-options:
-pkgconfig-depends:
-frameworks:
-c-sources:
-default-language:
-other-languages:
-default-extensions:
-other-extensions:
-extensions: DoAndIfThenElse
-extra-libraries:
-extra-lib-dirs:
-includes:
-install-includes:
-include-dirs:
 hs-source-dirs: src
-other-modules: WAM WAM.Runtime WAM.Compile Prolog
-ghc-prof-options:
+other-modules:  WAM 
+                WAM.Runtime 
+                WAM.Compile 
+                WAM.Emit
+                WAM.Instruction
+                Prolog
+extensions: DoAndIfThenElse
+ghc-prof-options: -prof -auto-all
 ghc-shared-options:
 ghc-options:
-hugs-options:
-nhc98-options:
-jhc-options:

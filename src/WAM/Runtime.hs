@@ -19,6 +19,7 @@ module WAM.Runtime (
 ) where
 
 import WAM
+import WAM.Emit
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.State
@@ -164,7 +165,7 @@ wamExecute (P _ index instr) =
     in init >> run
 
 traceCommand i = do
-    liftIO $ putStr (dumpWamCommand i)
+    liftIO $ putStr (wamEmitInstr i)
     let (_,rs) = i
     rs' <- mapM (\i -> get_content i >>= dumpCell) rs
     liftIO $ putStrLn (show rs')

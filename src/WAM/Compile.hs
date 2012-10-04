@@ -13,7 +13,7 @@
 -----------------------------------------------------------------------------
 
 module WAM.Compile (
-    wamCompileProgram
+    wamCompileProg
 ) where
 
 import Prolog
@@ -202,7 +202,7 @@ wamCompileDefs (q:qs) p i =
        c  = (wamCompilePredicate ds i)
    in c:(wamCompileDefs qs p (length c + i))
 
-wamCompileProgram (g,p) =
+wamCompileProg (g,p) =
    let ps = (gp, length vg):preds p
        ps' = map fst ps
        i = 1

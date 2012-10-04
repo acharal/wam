@@ -15,15 +15,20 @@
 module Main where
 
 import Prolog
-import WAM
-import WAM.Compile
-import WAM.Runtime
+
+import WAM.Instruction
+import WAM.Compile (wamCompileProg)
+import WAM.Runtime (dumpCell, evalWam, wamExecute)
+import WAM.Emit (wamEmitProg)
+
 import System.IO
 import System.Exit
 import System.Environment
 import System.Console.GetOpt
+
 import Paths_wam
 import Data.Version
+
 import Control.Monad (when)
 import Control.Monad.Trans (liftIO)
 
@@ -84,14 +89,14 @@ main = do
     fl <- hGetContents h
 
     compiled <- case parseprolog "error" fl of
-                    Right x -> return $ wamCompileProgram x
+                    Right x -> return $ wamCompileProg x
                     Left y -> print y >> exitWith (ExitFailure 1)
 
     case output of
-        Nothing -> when (verbose opts) (putStr $ dumpWAMProgram compiled)
+        Nothing -> when (verbose opts) (putStr $ wamEmitProg compiled)
         Just out -> do
                 ho <- openFile out WriteMode
-                hPutStr ho $ dumpWAMProgram compiled
+                hPutStr ho $ wamEmitProg compiled
                 hClose ho
     let (P gs _ _) = compiled
 

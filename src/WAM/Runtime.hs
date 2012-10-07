@@ -46,17 +46,17 @@ data WamState = WamState {
     -- local :: WamMem,
     -- heap  :: WamMem,
     -- trail :: WamMem,
-    mem   :: WamMem,
-    code  :: WamCode,
-    regs  :: WamMem,
-    reg_p :: WamAddress,    -- register pointing  to code
-    reg_t :: WamAddress,    -- register pointing at the top of trail
-    reg_c :: WamAddress,    -- register to hold the last code before a call
-    reg_h :: WamAddress,    -- register pointing at the top of heap (global stack)
-    reg_b :: WamAddress,    -- register pointing at the top of backtrack (local stack)
-    reg_e :: WamAddress,    -- register pointing at the top of the environment (local stack)
-    reg_a :: Int,           -- register holding the arity of the argument
-    reg_s :: WamAddress,    -- structure pointer
+    mem   :: WamMem,        -- ^ global space of memory
+    code  :: WamCode,       -- ^ instructions
+    regs  :: WamMem,        -- ^ X, Y registers
+    reg_p :: WamAddress,    -- ^ register pointing  to code
+    reg_t :: WamAddress,    -- ^ register pointing at the top of trail
+    reg_c :: WamAddress,    -- ^ register to hold the last code before a call
+    reg_h :: WamAddress,    -- ^ register pointing at the top of heap (global stack)
+    reg_b :: WamAddress,    -- ^ register pointing at the top of backtrack (local stack)
+    reg_e :: WamAddress,    -- ^ register pointing at the top of the environment (local stack)
+    reg_a :: Int,           -- ^ register holding the arity of the argument
+    reg_s :: WamAddress,    -- ^ structure pointer
     max_instr :: Int
 }
 

@@ -12,9 +12,7 @@
 --
 -----------------------------------------------------------------------------
 
-module WAM.Compile (
-    wamCompileProg
-) where
+module WAM.Compile where
 
 import Prolog
 import WAM
@@ -27,9 +25,20 @@ import Debug.Trace
 import Control.Monad
 import Control.Monad.Trans.State
 
--- type WAMCompile m a = StateT WamCompileState m a
 
+{- 
 
+-- type WAMCompile m a = ReaderT WamCompileEnv m a
+
+data WamCompileEnv = WamEnv 
+    {   perms     :: [String]       -- permanent variables
+    ,   unsafe    :: [String]       -- unsafe variables
+    ,   firstFree :: Int            -- Maximum number of reserved variables 
+    ,   symbolTbl :: WamSymbolTable -- mapping between clause variables and wamregisters
+    }
+-}
+
+-- | Returns the permanent variables from a clause
 perms :: Clause -> [String]
 perms (t, ts) =
     let headvars = varsTerm t
@@ -41,6 +50,7 @@ perms (t, ts) =
         aux (l:ls) = (filter (\e -> e `elem` l') l) ++ aux ls where l' = concat ls
     in nub $ aux lst
 
+-- | Returns the "safe" variables
 safe (h, []) = varsTerm h
 safe (h, b) = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
     where b' = init b
@@ -54,8 +64,10 @@ safe (h, b) = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
                     V _ -> inCompound ts
 
 
+-- | Returns the "unsafe" variables
 unsafe :: Clause -> [String]
 unsafe c@(h,b) = (varsClause c) \\ safe c
+
 
 type WamSymbolTable = [(String,WamRegister)]
 
@@ -106,6 +118,15 @@ newTempVar tbl r m = Temp (n + 1)
 
 -- WAM Compilation
 
+-- | Compiles a literal, either a head literal or a body literal
+wamCompileLit :: Bool               -- ^  h is a bool - if true then compilation is a "get" else is a "put" mode
+              -> [Term]             -- ^  a list of literals to compile
+              -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
+              -> WamSymbolTable     -- ^  the mapping between the name of a variable and the wamregister that referenced to it
+              -> [String]           -- ^  the set of permanent variables (scope clause)
+              -> [String]           -- ^  the set of unsafe variables (scope clause)
+              -> Int                -- ^  a maximum integer used to assign new variables 
+              -> [WamInstr]         -- ^  the output sequence of wam instructions
 wamCompileLit h [] _ _ _ _ _ = []
 wamCompileLit h (t:ts) (r:rs) tbl perms u n =
     let
@@ -130,14 +151,28 @@ wamCompileLit h (t:ts) (r:rs) tbl perms u n =
                      Nothing -> let (z,tbl') = newVar tbl perms (r:rs) n v
                                 in (opVariable, [z,r]) : (wamCompileLit h ts rs tbl' perms u n)
 
+
+-- | Compiles a head literal
 wamCompileHeadLit ts perms n = wamCompileLit True ts xs [] perms [] n
    where n' = length ts
          xs = map (\i -> Temp i) (reverse [1..n'])
 
+
+-- | Compiles a goal literal
 wamCompileGoalLit ts tbl perms u = wamCompileLit False ts xs tbl perms u n
    where n = length ts
          xs = map (\i -> Temp i) (reverse [1..n])
 
+-- | Compiles a term
+wamCompileTerm :: Bool               -- ^  h is a bool - if true then compilation is a "get" else is a "put" mode
+              -> [Term]             -- ^  a list of terms to compile
+              -> [Term]             -- ^  a list of literals to continue compilation after the compilation of the first argument
+              -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
+              -> WamSymbolTable     -- ^  the mapping between the name of a variable and the wamregister that referenced to it
+              -> [String]           -- ^  the set of permanent variables (scope clause)
+              -> [String]           -- ^  the set of unsafe variables (scope clause)
+              -> Int                -- ^  a maximum integer used to assign new variables 
+              -> [WamInstr]         -- ^  the output sequence of wam instructions
 wamCompileTerm h [] ts rs tbl perms u n =  wamCompileLit h ts rs tbl perms u n
 wamCompileTerm h (a:as) ts rs tbl perms u n =
     case a of
@@ -149,6 +184,7 @@ wamCompileTerm h (a:as) ts rs tbl perms u n =
                      Nothing -> let (z, tbl') = newVar tbl perms rs n v
                                 in (UnifyVariable, [z]):(wamCompileTerm h as ts rs tbl' perms u n)
 
+-- | Compiles the body consisted of many body literals
 wamCompileBody [] _ _ _ _ = [(Proceed, [])]
 wamCompileBody [g] tbl perms u e =
    let (T (s,args)) = g
@@ -164,6 +200,8 @@ wamCompileBody (g:gs) tbl perms u e =
        tbl' = filter isPerm $ extendTable args tbl perms n
    in c ++ (wamCompileBody gs tbl' perms u e)
 
+
+-- | Compiles a clause
 wamCompileClause (h,b) =
    let  has = args h
         args (T (_, as)) = as
@@ -178,7 +216,7 @@ wamCompileClause (h,b) =
 
 -- wamCompileGoal
 
-
+-- | Compiles the many alternative clauses of a predicate
 wamCompileAlters (l:ls) i =
    let c = wamCompileClause l
    in case ls of
@@ -187,6 +225,7 @@ wamCompileAlters (l:ls) i =
                  c' = (RetryMeElse j,[]):c
              in c' ++ wamCompileAlters ls j
 
+-- | Compiles a whole predicate consisting of none or many alternatives
 wamCompilePredicate [] i = [(Backtrack, [])]
 wamCompilePredicate [d] i = wamCompileClause d
 wamCompilePredicate (d:ds) i =
@@ -195,13 +234,14 @@ wamCompilePredicate (d:ds) i =
        c' = (TryMeElse j, []):c
    in c' ++ wamCompileAlters ds j
 
-
+-- | Compiles the definitions of the predicates
 wamCompileDefs [] p i = []
 wamCompileDefs (q:qs) p i =
    let ds = (defs p q)
        c  = (wamCompilePredicate ds i)
    in c:(wamCompileDefs qs p (length c + i))
 
+-- | Compiles a logic program consisting of many definitions
 wamCompileProg (g,p) =
    let ps = (gp, length vg):preds p
        ps' = map fst ps

@@ -37,8 +37,15 @@ type WamInstr = (WamOp, [WamArg])
 
 data WamRegister = Perm Int | Temp Int  deriving Show
 
+
+type WamInstrSeq = [WamInstr]
+
 -- WAM Program
-data WamProgram = P [String] [(WamLabel,WamAddress)] [WamInstr]
+data WamProgram = 
+    P { wamGoalVars :: [String]
+      , wamIndex    :: WamIndex 
+      , wamCode     :: WamInstrSeq
+      }
 
 
 type WamLabel = (String, Int)

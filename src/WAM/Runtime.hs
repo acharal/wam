@@ -21,8 +21,8 @@ module WAM.Runtime (
 import WAM
 import WAM.Emit
 import Control.Monad
-import Control.Monad.Trans
-import Control.Monad.Trans.State
+import Control.Monad.State
+import Control.Monad.Cont
 import System.IO
 import Data.Array.IO
 
@@ -38,29 +38,31 @@ data WamCell =
 isVarCell (Var _) = True
 isVarCell _ = False
 
-type WamMem = IOArray WamAddress WamCell
+type WamMem  = IOArray WamAddress WamCell
 type WamCode = IOArray WamAddress WamInstr
 
-data WamState = WamState {
-    idx :: [((String,Int),WamAddress)],
-    -- local :: WamMem,
-    -- heap  :: WamMem,
-    -- trail :: WamMem,
-    mem   :: WamMem,        -- ^ global space of memory
-    code  :: WamCode,       -- ^ instructions
-    regs  :: WamMem,        -- ^ X, Y registers
-    reg_p :: WamAddress,    -- ^ register pointing  to code
-    reg_t :: WamAddress,    -- ^ register pointing at the top of trail
-    reg_c :: WamAddress,    -- ^ register to hold the last code before a call
-    reg_h :: WamAddress,    -- ^ register pointing at the top of heap (global stack)
-    reg_b :: WamAddress,    -- ^ register pointing at the top of backtrack (local stack)
-    reg_e :: WamAddress,    -- ^ register pointing at the top of the environment (local stack)
-    reg_a :: Int,           -- ^ register holding the arity of the argument
-    reg_s :: WamAddress,    -- ^ structure pointer
-    max_instr :: Int
-}
 
-type WamRuntime = StateT WamState IO
+
+data WamState = WamState { idx :: WamIndex 
+                        -- , local :: WamMem
+                        -- , heap  :: WamMem
+                        -- , trail :: WamMem
+                         , mem   :: WamMem        -- ^ global space of memory
+                         , code  :: WamCode       -- ^ instructions
+                         , regs  :: WamMem        -- ^ registers
+                         , reg_p :: WamAddress    -- ^ register pointing  to code
+                         , reg_t :: WamAddress    -- ^ register pointing at the top of trail
+                         , reg_c :: WamAddress    -- ^ register to hold the last code before a call
+                         , reg_h :: WamAddress    -- ^ register pointing at the top of heap (global stack)
+                         , reg_b :: WamAddress    -- ^ register pointing at the top of backtrack (local stack)
+                         , reg_e :: WamAddress    -- ^ register pointing at the top of the environment (local stack)
+                         , reg_a :: Int           -- ^ register holding the arity of the argument
+                         , reg_s :: WamAddress    -- ^ structure pointer
+                         , max_instr :: Int
+                         }
+
+-- type WamRuntime = StateT WamState (ContT () IO)
+type WamRuntime = ContT () (StateT WamState IO)
 
 change_cell i c = do
     st <- gets mem
@@ -96,8 +98,21 @@ proceed :: WamRuntime ()
 proceed = gets reg_c >>= \c -> jump c
 
 
-evalWam m = evalStateT m i
-   where i = WamState {idx=undefined, mem = undefined, code= undefined, regs = undefined, reg_p = 0, reg_c = 0, reg_b = 0, reg_s = 0, reg_a = 0, reg_t = 0, reg_h = 0, reg_e = 0, max_instr = undefined}
+evalWam m = evalStateT (runContT m (\a -> return ())) st 
+   where st = WamState { idx  = undefined
+                      , mem  = undefined
+                      , code = undefined
+                      , regs = undefined
+                      , reg_p = 0
+                      , reg_c = 0
+                      , reg_b = 0
+                      , reg_s = 0
+                      , reg_a = 0
+                      , reg_t = 0
+                      , reg_h = 0
+                      , reg_e = 0
+                      , max_instr = undefined
+                      }
 
 dumpState = do
     h <- gets reg_h
@@ -122,10 +137,20 @@ dumpCell i = let
        (Cons a) -> return a
        _ -> error ("cannot print " ++ show v)
 
+
+traceCommand i = do
+    liftIO $ putStr (wamEmitInstr i)
+    let (_,rs) = i
+    rs' <- mapM (\i -> get_content i >>= dumpCell) rs
+    liftIO $ putStrLn (show rs')
+
+
 hasChoicePoint = do
     b <- gets reg_b
     return (b > 1000)
 
+wamExecute :: WamProgram            -- ^ the compiled wam program
+           -> WamRuntime [WamCell]  -- ^ a list of wamcells containing the goal variables
 wamExecute (P _ index instr) =
     let
         ((g_name, g_arity),g_addr) = case filter (\((x,i),_) -> x == "?") index of
@@ -164,11 +189,6 @@ wamExecute (P _ index instr) =
             return cs
     in init >> run
 
-traceCommand i = do
-    liftIO $ putStr (wamEmitInstr i)
-    let (_,rs) = i
-    rs' <- mapM (\i -> get_content i >>= dumpCell) rs
-    liftIO $ putStrLn (show rs')
 
 step = do
     i <- gets reg_p >>= readinstr
@@ -492,25 +512,29 @@ backtrack = do
     unwind t
     modify (\s -> s{reg_p = p, reg_h = h, reg_c = c, reg_e = e, reg_a = a})
 
-sem (Allocate n, _) = allocate n
-sem (Deallocate, _) = deallocate
-sem (Proceed, _) = proceed
-sem (Call s, _) = call s
-sem (Execute s, _) = execute s
-sem (TryMeElse n, _) = try_me_else n
-sem (RetryMeElse n, _) = retry_me_else n
-sem (TrustMe, _) = trust_me_else_fail
-sem (Backtrack, _) = backtrack
-sem (GetConstant s, [z]) = get_constant (Cons s) z
-sem (GetVariable, [x,z]) = get_variable x z
-sem (GetValue, [x,z]) = get_value x z
-sem (GetStructure f, [x]) = get_structure f x
-sem (PutValue, [x,z]) = put_value x z
+-- | sem executes the operational semantics of the wam instruction
+sem :: WamInstr         -- ^ the wam instruction
+    -> WamRuntime () 
+sem (Allocate n, _)         = allocate n
+sem (Deallocate, _)         = deallocate
+sem (Proceed, _)            = proceed
+sem (Call s, _)             = call s
+sem (Execute s, _)          = execute s
+sem (TryMeElse n, _)        = try_me_else n
+sem (RetryMeElse n, _)      = retry_me_else n
+sem (TrustMe, _)            = trust_me_else_fail
+sem (Backtrack, _)          = backtrack
+sem (GetConstant s, [z])    = get_constant (Cons s) z
+sem (GetVariable, [x,z])    = get_variable x z
+sem (GetValue, [x,z])       = get_value x z
+sem (GetStructure f, [x])   = get_structure f x
+sem (PutValue, [x,z])       = put_value x z
 sem (PutUnsafeValue, [x,z]) = put_unsafe_value x z
-sem (PutVariable, [x,z]) = put_variable x z
-sem (PutStructure f, [x]) = put_structure f x
-sem (PutConstant c, [x]) = put_constant (Cons c) x
-sem (UnifyConstant c,_) = unify_constant (Cons c)
-sem (UnifyValue, [x]) = unify_value x
-sem (UnifyVariable, [x]) =  unify_variable x
-sem x = error $ "unknown instruction " ++ show x
+sem (PutVariable, [x,z])    = put_variable x z
+sem (PutStructure f, [x])   = put_structure f x
+sem (PutConstant c, [x])    = put_constant (Cons c) x
+sem (UnifyConstant c,_)     = unify_constant (Cons c)
+sem (UnifyValue, [x])       = unify_value x
+sem (UnifyVariable, [x])    = unify_variable x
+sem x                       = error $ "unknown instruction " ++ show x
+

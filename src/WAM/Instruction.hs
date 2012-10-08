@@ -8,17 +8,17 @@ data WamOp =
      PutVariable
    | PutValue
    | PutUnsafeValue
-   | PutStructure (String,Int)
+   | PutStructure WamLabel
    | PutConstant String
-   | GetStructure (String,Int)
+   | GetStructure WamLabel
    | GetConstant String
    | GetValue
    | GetVariable
    | UnifyConstant String
    | UnifyValue
    | UnifyVariable
-   | Call (String,Int)
-   | Execute (String,Int)
+   | Call WamLabel
+   | Execute WamLabel
    | Proceed
    | Allocate Int
    | Deallocate
@@ -38,7 +38,9 @@ type WamInstr = (WamOp, [WamArg])
 data WamRegister = Perm Int | Temp Int  deriving Show
 
 -- WAM Program
-data WamProgram = P [String] [((String,Int),WamAddress)] [WamInstr]
+data WamProgram = P [String] [(WamLabel,WamAddress)] [WamInstr]
 
 
+type WamLabel = (String, Int)
 
+type WamIndex = [(WamLabel, WamAddress)]

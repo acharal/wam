@@ -100,5 +100,14 @@ main = do
                 hClose ho
     let (P gs _ _) = compiled
 
-    when (onlycompile == False) $ do
-        evalWam $ (wamExecute compiled) >>= \is -> mapM_ (\(v,i) -> dumpCell i >>= \st -> liftIO (putStrLn (v ++ "=" ++ st))) (zip gs is)
+    when (onlycompile == False) (runWam gs compiled)
+
+printWamVars gs is = 
+    let printBinding (v,i) = do
+            cell <- dumpCell i
+            liftIO $ putStr (v ++ "=" ++ cell)
+    in mapM_ printBinding (zip gs is)
+
+runWam gs compiled = 
+    evalWam $ wamExecute compiled >>= (printWamVars gs)
+

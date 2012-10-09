@@ -98,9 +98,9 @@ main = do
                 ho <- openFile out WriteMode
                 hPutStr ho $ wamEmitProg compiled
                 hClose ho
-    let (P gs _ _) = compiled
 
-    when (onlycompile == False) (runWam gs compiled)
+    when (onlycompile == False) $
+        runWam (wamGoalVars compiled)  compiled
 
 printWamVars gs is = 
     let printBinding (v,i) = do

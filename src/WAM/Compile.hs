@@ -281,5 +281,8 @@ wamCompileProg (g,p) =
        cs  = wamCompileDefs ps' (g':p) i
        a start [_] = [start]
        a start (n:x) = start:(a (start + n) x)
-   in P (reverse vg) (zip ps $ a 1 (map length cs)) (concat cs)
+   in P { wamGoalVars = (reverse vg)
+        , wamIndex    = (zip ps $ a 1 (map length cs)) 
+        , wamCode     = (concat cs)
+        }
 

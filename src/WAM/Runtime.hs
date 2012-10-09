@@ -27,7 +27,7 @@ import System.IO
 import Data.Array.IO
 
 data WamCell =
-       Struct (String,Int)      -- (f/n)
+       Struct WamLabel          -- (f/n)
      | Var WamAddress           -- REF n
      | Str WamAddress           -- STR n
      | Cons String              -- CONS s
@@ -40,7 +40,6 @@ isVarCell _ = False
 
 type WamMem  = IOArray WamAddress WamCell
 type WamCode = IOArray WamAddress WamInstr
-
 
 
 data WamState = WamState { idx :: WamIndex 
@@ -58,32 +57,39 @@ data WamState = WamState { idx :: WamIndex
                          , reg_e :: WamAddress    -- ^ register pointing at the top of the environment (local stack)
                          , reg_a :: Int           -- ^ register holding the arity of the argument
                          , reg_s :: WamAddress    -- ^ structure pointer
-                         , max_instr :: Int
                          }
 
 -- type WamRuntime = StateT WamState (ContT () IO)
 type WamRuntime = ContT () (StateT WamState IO)
 
+-- memory management
+
+-- | changes the content of the cell in the global memory space
 change_cell i c = do
     st <- gets mem
     liftIO $ writeArray st i c
-
-save_reg i r = gets r >>= \a -> change_cell i (Addr a)
 
 get_cell i = do
     st <- gets mem
     liftIO $ readArray st i
 
+-- | make cell i unbound, namely a variable cell with self-reference
 create_unbound i = change_cell i (Var i)
 
+-- | saves the content of a register in the cell in memory
+save_reg i r = gets r >>= \a -> change_cell i (Addr a)
+
+-- code control
+
+-- | advance the program register by n
 advance n = gets reg_p >>= \p ->  jump (p + n)
 
+-- | jump to a specific address
 jump :: WamAddress -> WamRuntime ()
 jump p' = modify (\s -> s{reg_p = p'})
 
+-- | read the wam instruction from the current location of p
 readinstr n = gets reg_p >>= \p -> gets code >>= \st -> liftIO $ readArray st (n)
-
-set_arity n = modify (\s -> s{reg_a = n})
 
 set_return_address :: WamRuntime ()
 set_return_address = gets reg_p >>= \p -> modify (\s -> s{reg_c = p})
@@ -91,35 +97,66 @@ set_return_address = gets reg_p >>= \p -> modify (\s -> s{reg_c = p})
 set_structure_pointer :: WamAddress -> WamRuntime ()
 set_structure_pointer s = modify (\st -> st{reg_s = s})
 
-next_arg :: WamRuntime ()
-next_arg = gets reg_s >>= \s -> modify (\st -> st{reg_s = s + 1})
-
 proceed :: WamRuntime ()
 proceed = gets reg_c >>= \c -> jump c
 
+-- register management
 
-evalWam m = evalStateT (runContT m (\a -> return ())) st 
-   where st = WamState { idx  = undefined
-                      , mem  = undefined
-                      , code = undefined
-                      , regs = undefined
-                      , reg_p = 0
-                      , reg_c = 0
-                      , reg_b = 0
-                      , reg_s = 0
-                      , reg_a = 0
-                      , reg_t = 0
-                      , reg_h = 0
-                      , reg_e = 0
-                      , max_instr = undefined
-                      }
+-- | translate address of permanent variable based on environment register
+get_perm_real_addr :: WamAddress -> WamRuntime WamAddress
+get_perm_real_addr i = do
+    e <- gets reg_e
+    return (e-1-i)
 
+get_perm :: WamAddress -> WamRuntime WamCell
+get_perm i = do
+    a <- get_perm_real_addr i
+    get_cell a
+
+set_perm :: WamAddress -> WamCell -> WamRuntime ()
+set_perm i c = do
+    a <- get_perm_real_addr i
+    change_cell a c
+
+get_temp i = do
+    rs <- gets regs
+    liftIO $ readArray rs i
+
+set_temp i c = do
+    rs <- gets regs
+    liftIO $ writeArray rs i c
+
+-- | get content of a register
+get_content (Perm i) = get_perm i
+get_content (Temp i) = get_temp i
+
+-- | set content of a register
+set_content (Perm i) = set_perm i
+set_content (Temp i) = set_temp i
+
+
+save_arg i a = get_temp a >>= change_cell i
+
+restore_arg i a = get_cell i >>= set_temp a
+
+
+-- arity management 
+
+set_arity n = modify (\s -> s{reg_a = n})
+
+next_arg :: WamRuntime ()
+next_arg = gets reg_s >>= \s -> modify (\st -> st{reg_s = s + 1})
+
+
+-- trace 
+
+dumpState :: WamRuntime ()
 dumpState = do
     h <- gets reg_h
     m <- gets mem
     hs <- liftIO $ mapM (readArray m) [1..h]
-    liftIO $ putStrLn ("h = " ++ show h) :: WamRuntime ()
-    liftIO $ putStrLn (show hs) :: WamRuntime ()
+    liftIO $ putStrLn ("h = " ++ show h)
+    liftIO $ putStrLn (show hs)
 
 dumpCell i = let
         sepStr' [] _ = ""
@@ -149,45 +186,75 @@ hasChoicePoint = do
     b <- gets reg_b
     return (b > 1000)
 
+
+evalWam m = evalStateT (runContT m (\a -> return ())) st 
+   where st = WamState { idx  = undefined
+                       , mem  = undefined
+                       , code = undefined
+                       , regs = undefined
+                       , reg_p = 0
+                       , reg_c = 0
+                       , reg_b = 0
+                       , reg_s = 0
+                       , reg_a = 0
+                       , reg_t = 0
+                       , reg_h = 0
+                       , reg_e = 0
+                      }
+
 wamExecute :: WamProgram            -- ^ the compiled wam program
            -> WamRuntime [WamCell]  -- ^ a list of wamcells containing the goal variables
-wamExecute (P _ index instr) =
-    let
-        ((g_name, g_arity),g_addr) = case filter (\((x,i),_) -> x == "?") index of
-                                                [] -> error "goal not found"
-                                                [x] -> x
+wamExecute p =
+    let index = wamIndex p
+        instr = wamCode p
+
+        ((g_name, g_arity), g_addr) = 
+               case filter (\((x,i),_) -> x == "?") index of
+                          []  -> error "goal not found"
+                          [x] -> x
         init = do
-            m <- liftIO $ newArray_ (1,arraysize) :: WamRuntime (IOArray WamAddress WamCell)
-            c <- liftIO $ newListArray (1,1024) instr
-            r <- liftIO $ newArray_ (1,100) :: WamRuntime (IOArray Int WamCell)
-            modify (\st -> st{code = c,
-                              mem = m,
-                              idx = index,
-                              regs =  r,
-                              reg_p = g_addr,
-                              reg_c = 0,
-                              reg_a = g_arity,
-                              reg_s = 0,
-                              reg_e = 1000,
-                              reg_b = 1000,
-                              reg_h = 0 + g_arity,
-                              reg_t = 2000,
-                              max_instr = length instr})
-            mapM_ (create_unbound) [1..g_arity]
-            mapM_ (\i -> get_cell i >>= \c -> liftIO $ writeArray r i c) [1..g_arity]
-        arraysize =2^20
+            init_prog
+            init_mem (2^20) 100
+
+        init_prog = do
+            c <- liftIO $ newListArray (1, 1024) instr
+            modify (\st -> st{ code  = c
+                             , idx   = index
+                             , reg_p = 0
+                             , reg_c = 0
+                             , reg_s = 0
+                             })
+
+        init_mem arraysize regnum = do
+            m <- liftIO $ newArray_ (1, arraysize) :: WamRuntime (IOArray WamAddress WamCell)
+            r <- liftIO $ newArray_ (1, regnum)    :: WamRuntime (IOArray Int WamCell)
+            modify (\st -> st{ mem   = m
+                             , regs  = r
+                             , reg_e = startAndStack
+                             , reg_b = startOrStack
+                             , reg_h = startHeap
+                             , reg_t = startTrail
+                             })
+          where startHeap     = 0
+                startAndStack = startHeap + 1000
+                startOrStack  = startAndStack
+                startTrail    = startAndStack + 1000
+
+        init_goal = do 
+            set_arity g_arity
+            mapM_ (\i -> create_unbound i >> restore_arg i i) [1..g_arity]
+            h <- gets reg_h
+            modify (\s -> s{reg_h = h + g_arity})
+            jump g_addr
+
         loop = do
             step
             p <- gets reg_p
-            m <- gets max_instr
             when (not(p == 0)) loop -- (p <= m) loop
+
         run = do
             loop
-            cs <- mapM get_cell [1..g_arity]
-            hasChoice <- hasChoicePoint
-            -- when (hasChoice) run
-            return cs
-    in init >> run
+    in init >> init_goal >> run >> get_cells 1 g_arity
 
 
 step = do
@@ -200,10 +267,9 @@ deref a =
     case a of
        Var x -> do
            c <- get_cell x
-           if not (unBound x c) then
-              (deref c)
-           else
-              return a
+           if not (unBound x c) 
+           then deref c
+           else return a
        _ -> return a
     where unBound x (Var y) = (x == y)
           unBound _ _ = False
@@ -231,37 +297,6 @@ deallocate = do
     modify (\s -> s{reg_e = e', reg_c = c'})
 
 
-get_perm_real_addr :: WamAddress -> WamRuntime WamAddress
-get_perm_real_addr i = do
-    e <- gets reg_e
-    return (e-1-i)
-
-get_perm :: WamAddress -> WamRuntime WamCell
-get_perm i = do
-    e <- gets reg_e
-    let a = e-1-i
-    get_cell a
-
-set_perm :: WamAddress -> WamCell -> WamRuntime ()
-set_perm i c = do
-    e <- gets reg_e
-    let a = e-1-i
-    change_cell a c
-
-get_temp i = do
-    rs <- gets regs
-    liftIO $ readArray rs i
-
-set_temp i c = do
-    rs <- gets regs
-    liftIO $ writeArray rs i c
-
-get_content (Perm i) = get_perm i
-get_content (Temp i) = get_temp i
-
-set_content (Perm i) = set_perm i
-set_content (Temp i) = set_temp i
-
 procedure_address q = do
     preds <- gets idx
     return $ lookup q preds
@@ -279,12 +314,14 @@ execute_variable r n =
     let execute' x n = do
             dx <- deref x
             case dx of
-                (App a m) -> do
+                App a m -> do
                     app <- get_cell a
                     mapM_ (\i -> restore_arg (a+m+1-i) (n+i)) [1..m]
                     execute' app (n+m)
-                (Struct (f,l)) -> execute (f,l)
-                (Var v) -> error "Uninstantiated higher order variable"
+                Struct str -> 
+                    execute str
+                Var v -> 
+                    error "Uninstantiated higher order variable"
     in do
         x <- get_content r
         execute' x n
@@ -326,6 +363,7 @@ stabilize a b = do
     bind b c
 
 precedes (Var x) (Var y) = x < y
+precedes _ _ = error "cell content not variables"
 
 -- occur check not implemented
 occursin x y = False
@@ -337,17 +375,17 @@ unify_lists (x:xs) (y:ys) = let
         isVar (Var _) = True
         isVar _ = False
         unify' x@(Var a) y@(Var b) = do
-            if x `precedes` y then
-                bind b x
-            else
-                bind a y
+            if x `precedes` y 
+            then bind b x
+            else bind a y
             unify_lists xs ys
         unify' x@(Var a) y = if x `occursin` y then backtrack else bind a y >> unify_lists xs ys
         unify' x y@(Var b) = if y `occursin` x then backtrack else bind b x >> unify_lists xs ys
         unify' (Str a) (Str b) = do
-            (Struct (f,n)) <- get_cell a
-            (Struct (g,m)) <- get_cell b
-            if (f == g && n == m) then do
+            Struct (f,n) <- get_cell a
+            Struct (g,m) <- get_cell b
+            if (f == g && n == m) 
+            then do
                 fs <- get_cells (a+1) n
                 gs <- get_cells (b+1) m
                 unify_lists (fs ++ xs) (gs ++ ys)
@@ -357,10 +395,9 @@ unify_lists (x:xs) (y:ys) = let
      in do
         x' <- deref x
         y' <- deref y
-        if (x' == y') then
-            unify_lists xs ys
-        else
-            unify' x' y'
+        if (x' == y')
+        then unify_lists xs ys
+        else unify' x' y'
 
 unify x y = unify_lists [x] [y]
 
@@ -378,20 +415,24 @@ push_structure (f,n) = do
     change_cell (h+1) (Str (h+2))
     change_cell (h+2) (Struct (f,n))
     mapM_ create_unbound [(h+3)..(h+n+2)]
-    modify (\st -> st{reg_h = h + n + 2, reg_s = h + 3})
+    modify (\st -> st{ reg_h = h + n + 2
+                     , reg_s = h + 3
+                     })
 
-get_structure (f,n) x = do
+get_structure str x = do
     x' <- get_content x
     dx <- deref x'
     case dx of
-        (Var _) -> do
+        Var _ -> do
             h <- gets reg_h
-            push_structure (f,n)
+            push_structure str
             hc <- get_cell (h+1)
             unify dx hc
-        (Str a) -> do
-            (Struct (f',n')) <- get_cell a
-            if f' == f && n' == n then set_structure_pointer a >> next_arg else backtrack
+        Str a -> do
+            Struct str' <- get_cell a
+            if str == str'
+            then set_structure_pointer a >> next_arg 
+            else backtrack
         _ -> backtrack
 
 
@@ -463,9 +504,6 @@ unify_constant c = do
     next_arg
     unify c content
 
-save_arg i a = get_temp a >>= change_cell i
-restore_arg i a = get_cell i >>= set_temp a
-
 try_me_else p = do
     b <- gets reg_b
     e <- gets reg_e
@@ -510,7 +548,12 @@ backtrack = do
     (Addr a) <- get_cell (k-6)
     mapM_ (\i -> restore_arg (k-7-a+i) i) [1..a]
     unwind t
-    modify (\s -> s{reg_p = p, reg_h = h, reg_c = c, reg_e = e, reg_a = a})
+    modify (\s -> s{ reg_p = p
+                   , reg_h = h
+                   , reg_c = c
+                   , reg_e = e
+                   , reg_a = a
+                   })
 
 -- | sem executes the operational semantics of the wam instruction
 sem :: WamInstr         -- ^ the wam instruction

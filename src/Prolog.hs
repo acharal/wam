@@ -17,9 +17,16 @@ module Prolog where
 import Text.ParserCombinators.Parsec
 import Data.List (nub)
 
-data Term    =  T (String, [Term]) | V2 (String, [Term]) | V String deriving (Show, Eq)
+data Term    =  
+    T (String, [Term]) 
+  | V String
+  | V2 (String, [Term]) 
+  deriving (Show, Eq)
+
 type Clause  = (Term, [Term])
-type Goal = [Term]
+
+type Goal    = [Term]
+
 type Program = (Goal,[Clause])
 
 data Type = TypeO | TypeI | F Type Type deriving Show
@@ -34,7 +41,11 @@ varsGoal ts = nub $ concatMap varsTerm ts
 
 preds cs =  nub $ map (\(T (s,args),_) -> (s, length args)) cs
 
-defs cs p =  filter isOfPred cs where isOfPred (T (s,_),_) = s == p
+defs cs (p,n) =  filter isOfPred cs 
+    where isOfPred (T (s,args),_) = s == p && length args == n
+
+args (T (_, x))    = x
+functor (T (x, _)) = x
 
 -- types
 
@@ -110,8 +121,16 @@ typsig = do
     return (a,t)
 
 
-prolog = goal >>= \g ->  clauses >>= \cs -> return (g, cs)
-hoprolog = many typsig >>= \ts -> spaces >> prolog >>= \prog -> return (ts, prog)
+prolog = do 
+    g <- goal 
+    cs <- clauses
+    return (g, cs)
 
-parseprolog = parse prolog
+hoprolog = do
+    ts <- many typsig
+    spaces
+    prog <- prolog
+    return (ts, prog)
+
+parseprolog   = parse prolog
 parsehoprolog = parse hoprolog

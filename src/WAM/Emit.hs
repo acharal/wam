@@ -42,10 +42,10 @@ pprInstr (TrustMe, _)             = pprInstrAux "trust_me_or_fail" []
 pprIdx idx = vcat $ map pprIdxEntry idx
     where pprIdxEntry ((s,n),i) = parens $ sep $ punctuate comma [ pprPredAux s n, int i ]
 
-pprProg (P _ idx ws) = (vcat $ map pprInstr ws) $$ (pprIdx idx)
+pprProg p = (vcat $ map pprInstr $ wamCode p) $$ (pprIdx $ wamIndex p)
 
-wamEmitInstr i = render $ pprInstr i
-wamEmitProg p  = render $ pprProg p
+wamEmitInstr i    = render $ pprInstr i
+wamEmitProg (_,p) = render $ pprProg p
 
 dumpIndex [] = ""
 dumpIndex (((s,n),i):idx) = "(" ++ s ++ "/" ++ show n ++ ", " ++ show i ++ ")\n" ++ dumpIndex idx

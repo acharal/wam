@@ -35,19 +35,29 @@ type WamArg = WamRegister
 -- WAM Instruction
 type WamInstr = (WamOp, [WamArg])
 
-data WamRegister = Perm Int | Temp Int  deriving Show
-
+data WamRegister = 
+    Perm Int 
+  | Temp Int 
+  deriving Show
 
 type WamInstrSeq = [WamInstr]
-
--- WAM Program
-data WamProgram = 
-    P { wamGoalVars :: [String]
-      , wamIndex    :: WamIndex 
-      , wamCode     :: WamInstrSeq
-      }
-
 
 type WamLabel = (String, Int)
 
 type WamIndex = [(WamLabel, WamAddress)]
+
+type WamGoal = ([String], WamInstrSeq)
+
+-- WAM Program
+data WamProgram = 
+    DB { wamIndex    :: WamIndex 
+       , wamCode     :: WamInstrSeq
+       }
+
+
+mkDB :: [(WamLabel, WamInstrSeq)] -> WamProgram
+mkDB lst = DB { wamIndex = idx, wamCode = code }
+    where 
+        (idx, code) = foldl aux ([],[]) lst
+        aux (idx, code) (lbl, instr) = (idx ++ [(lbl, length code + 1)], code ++ instr)
+

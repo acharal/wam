@@ -42,10 +42,7 @@ type WamMem  = IOArray WamAddress WamCell
 type WamCode = IOArray WamAddress WamInstr
 
 
-data WamState = WamState { idx :: WamIndex 
-                        -- , local :: WamMem
-                        -- , heap  :: WamMem
-                        -- , trail :: WamMem
+data WamState = WamState { idx   :: WamIndex      -- ^ predicate index
                          , mem   :: WamMem        -- ^ global space of memory
                          , code  :: WamCode       -- ^ instructions
                          , regs  :: WamMem        -- ^ registers
@@ -147,7 +144,6 @@ set_arity n = modify (\s -> s{reg_a = n})
 next_arg :: WamRuntime ()
 next_arg = gets reg_s >>= \s -> modify (\st -> st{reg_s = s + 1})
 
-
 -- trace 
 
 dumpState :: WamRuntime ()
@@ -186,38 +182,47 @@ hasChoicePoint = do
     b <- gets reg_b
     return (b > 1000)
 
+emptyWamState = 
+    WamState { idx  = undefined
+             , mem  = undefined
+             , code = undefined
+             , regs = undefined
+             , reg_p = 0
+             , reg_c = 0
+             , reg_b = 0
+             , reg_s = 0
+             , reg_a = 0
+             , reg_t = 0
+             , reg_h = 0
+             , reg_e = 0
+             }
 
-evalWam m = evalStateT (runContT m (\a -> return ())) st 
-   where st = WamState { idx  = undefined
-                       , mem  = undefined
-                       , code = undefined
-                       , regs = undefined
-                       , reg_p = 0
-                       , reg_c = 0
-                       , reg_b = 0
-                       , reg_s = 0
-                       , reg_a = 0
-                       , reg_t = 0
-                       , reg_h = 0
-                       , reg_e = 0
-                      }
+evalWam m = evalStateT (runContT m return) emptyWamState
 
-wamExecute :: WamProgram            -- ^ the compiled wam program
-           -> WamRuntime [WamCell]  -- ^ a list of wamcells containing the goal variables
-wamExecute p =
+wamExecute :: WamProgram                     -- ^ the compiled wam program
+           -> WamGoal                        -- ^ the compiled goal
+           -> WamRuntime [(String,WamCell)]  -- ^ a list of wamcells containing the goal variables
+wamExecute p g =
     let index = wamIndex p
         instr = wamCode p
 
+        {-
         ((g_name, g_arity), g_addr) = 
                case filter (\((x,i),_) -> x == "?") index of
                           []  -> error "goal not found"
                           [x] -> x
+        -}
+
+        (vars, goal) = g
+        g_arity      = length vars
+        g_addr       = length instr + 1
+
         init = do
             init_prog
             init_mem (2^20) 100
 
         init_prog = do
-            c <- liftIO $ newListArray (1, 1024) instr
+            c <- liftIO $ newListArray (1, 1024) (instr ++ goal)
             modify (\st -> st{ code  = c
                              , idx   = index
                              , reg_p = 0
@@ -254,7 +259,12 @@ wamExecute p =
 
         run = do
             loop
-    in init >> init_goal >> run >> get_cells 1 g_arity
+    in do 
+        init
+        init_goal
+        run
+        cells <- get_cells 1 g_arity
+        return (zip vars cells)
 
 
 step = do

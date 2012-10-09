@@ -17,7 +17,7 @@ module Main where
 import Prolog
 
 import WAM.Instruction
-import WAM.Compile (wamCompileProg)
+import WAM.Compile (wamCompileProg, wamCompileGoal)
 import WAM.Runtime (dumpCell, evalWam, wamExecute)
 import WAM.Emit (wamEmitProg)
 
@@ -83,31 +83,42 @@ main = do
 
     opts <- foldl (>>=) (return startOptions) actions
 
-    let Options { inputFile = input, outputFile = output, onlyCompile = onlycompile } = opts
+    let Options { inputFile = input
+                , outputFile = output
+                , onlyCompile = onlycompile 
+                } = opts
 
-    h <- openFile input ReadMode
+    h  <- openFile input ReadMode
     fl <- hGetContents h
 
-    compiled <- case parseprolog "error" fl of
-                    Right x -> return $ wamCompileProg x
-                    Left y -> print y >> exitWith (ExitFailure 1)
+    compiled <-
+        case parseprolog "error" fl of
+            Right (g, p) -> 
+                return $ (wamCompileGoal g 0, wamCompileProg p)
+            Left y -> do
+                print y
+                exitWith (ExitFailure 1)
 
     case output of
-        Nothing -> when (verbose opts) (putStr $ wamEmitProg compiled)
+        Nothing -> 
+            when (verbose opts) $
+                putStr (wamEmitProg compiled)
         Just out -> do
-                ho <- openFile out WriteMode
-                hPutStr ho $ wamEmitProg compiled
-                hClose ho
+            ho <- openFile out WriteMode
+            hPutStr ho $ wamEmitProg compiled
+            hClose ho
 
     when (onlycompile == False) $
-        runWam (wamGoalVars compiled)  compiled
+        runWam compiled
 
-printWamVars gs is = 
+printWamVars gs = 
     let printBinding (v,i) = do
             cell <- dumpCell i
             liftIO $ putStr (v ++ "=" ++ cell)
-    in mapM_ printBinding (zip gs is)
+    in mapM_ printBinding gs
 
-runWam gs compiled = 
-    evalWam $ wamExecute compiled >>= (printWamVars gs)
+runWam (compiledGoal, compiledProg) = 
+    evalWam $ do 
+        gs <- wamExecute compiledProg compiledGoal
+        printWamVars gs
 

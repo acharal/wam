@@ -129,8 +129,8 @@ get_content (Temp i) = get_temp i
 
 -- | set content of a register
 set_content (Perm i) = set_perm i
-set_content (Temp i) = set_temp i
 
+set_content (Temp i) = set_temp i
 
 save_arg i a = get_temp a >>= change_cell i
 
@@ -161,14 +161,17 @@ dumpCell i = let
     in do
     v <- deref i
     case v of
-       (Var i) -> return ("V"++show i)
-       (Str i) -> do
-            (Struct (funct,arity)) <- get_cell i
+       Var i -> 
+            return ("V"++show i)
+       Str i -> do
+            Struct (funct,arity) <- get_cell i
             cs <- get_cells (i+1) arity
             ss <- mapM dumpCell cs
             return (funct ++ "(" ++ sepStr' ss "," ++ ")")
-       (Cons a) -> return a
-       _ -> error ("cannot print " ++ show v)
+       Cons a -> 
+            return a
+       _ ->
+            error ("cannot print " ++ show v)
 
 
 traceCommand i = do
@@ -177,6 +180,10 @@ traceCommand i = do
     rs' <- mapM (\i -> get_content i >>= dumpCell) rs
     liftIO $ putStrLn (show rs')
 
+
+-- error 
+
+unexpected msg = error msg
 
 hasChoicePoint = do
     b <- gets reg_b
@@ -264,7 +271,7 @@ wamExecute p g =
         init_goal
         run
         cells <- get_cells 1 g_arity
-        return (zip vars cells)
+        return $ zip vars cells
 
 
 step = do
@@ -315,7 +322,7 @@ execute (q,n) = do
     set_arity n
     r <- procedure_address (q,n)
     case r of
-        Just a -> jump a
+        Just a  -> jump a
         Nothing -> backtrack
 
 call q = set_return_address >> execute q
@@ -331,7 +338,7 @@ execute_variable r n =
                 Struct str -> 
                     execute str
                 Var v -> 
-                    error "Uninstantiated higher order variable"
+                    unexpected "Uninstantiated higher order variable"
     in do
         x <- get_content r
         execute' x n
@@ -373,7 +380,7 @@ stabilize a b = do
     bind b c
 
 precedes (Var x) (Var y) = x < y
-precedes _ _ = error "cell content not variables"
+precedes _ _ = unexpected "cell content not variables"
 
 -- occur check not implemented
 occursin x y = False
@@ -589,5 +596,5 @@ sem (PutConstant c, [x])    = put_constant (Cons c) x
 sem (UnifyConstant c,_)     = unify_constant (Cons c)
 sem (UnifyValue, [x])       = unify_value x
 sem (UnifyVariable, [x])    = unify_variable x
-sem x                       = error $ "unknown instruction " ++ show x
+sem x                       = unexpected $ "unknown instruction " ++ show x
 

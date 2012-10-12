@@ -28,8 +28,9 @@ import Debug.Trace
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Identity
 
-type WAMCompile m a = ReaderT WamCompEnv (StateT WamCompState m) a
+type WamCompile a = ReaderT WamCompEnv (StateT WamCompState Identity) a
 
 type WamSymbolTable = [(VarId,WamRegister)]
 
@@ -85,50 +86,6 @@ safe (h, b)  = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
 unsafe :: Clause -> [VarId]
 unsafe c@(h,b) = (varsClause c) \\ safe c
 
-
--- | extendTable 
-extendTable :: [Term]               -- ^ a list of terms
-            -> WamSymbolTable       -- ^ current symbol table
-            -> [VarId]              -- ^ permanent variables
-            -> Int                  -- ^ minimum free number
-            -> WamSymbolTable       -- ^ returns new extended symbol table
-extendTable ts tbl perms n =
-    let extendTableAux [] [] _ tbl = tbl
-        extendTableAux [] (t:ts) (r:rs) tbl =
-            case t of
-                T (s, args) -> 
-                    extendTableAux args ts rs tbl
-                V v -> 
-                    if v `inTable` tbl 
-                    then extendTableAux [] ts rs tbl
-                    else extendTableAux [] ts rs (extendTblNewVar tbl perms (r:rs) n v)
-        extendTableAux (a:as) ts rs tbl =
-             case a of
-                T (_, []) -> 
-                    extendTableAux as ts rs tbl
-                T (_, args) -> 
-                    extendTableAux as (a:ts) ((newTempVar tbl rs n):rs) tbl
-                V v -> 
-                    if v `inTable` tbl 
-                    then extendTableAux as ts rs tbl
-                    else extendTableAux as ts rs (extendTblNewVar tbl perms rs n v)
-        inTable v tbl = v `elem` (map fst tbl)
-    in extendTableAux [] ts xs tbl
-    where xs = map Temp $ reverse [1..length ts]
-
--- | extend symbol table with a new variable
--- | if the variable belongs to the permanent variables then we extend the 
--- | the symbol table with a new permanent register. if not then we extend it with
--- | a new temp register.
-extendTblNewVar :: WamSymbolTable       -- ^ current symbol table
-                -> [VarId]              -- ^ permanents variables
-                -> [WamRegister]        -- ^ reserved registers
-                -> Int                  -- ^ minimum free number
-                -> VarId                -- ^ name of variable
-                -> WamSymbolTable       -- ^ returns new symbol table
-extendTblNewVar tbl perms r n v | v `elem` perms = (v, newPermVar tbl):tbl
-                                | otherwise      = (v, newTempVar tbl r n):tbl
-
 unWrapVar (Temp i) = i
 unWrapVar (Perm i) = i
 
@@ -137,23 +94,38 @@ isPerm _ = False
 
 isTemp v = not (isPerm v)
 
-newVar tbl perms r n v =
-    let tbl' = extendTblNewVar tbl perms r n v
-    in  (fromJust (lookup v tbl'), tbl')
+newVar r n v = do 
 
-newPermVar tbl = Perm (n + 1)
-    where p = map unWrapVar $ filter isPerm $ map snd tbl
-          n = case p of
-                [] -> 0
-                _  -> maximum p
+    pe <- asks perms'
+    p  <- if v `elem` pe then
+             newPerm
+          else
+             newTemp r n
+    
+    tbl <- gets symbolTbl
 
-newTempVar tbl r m = Temp (n + 1)
-    where t = filter isTemp $ map snd tbl
-          p = map unWrapVar $ t ++ r
-          n = case p of
-                 [] -> m
-                 _  -> max m (maximum p)
+    let tbl' = (v,p):tbl
 
+    modify (\st -> st { symbolTbl = tbl' })
+
+    return p
+
+newPerm = do
+        tbl <- gets symbolTbl
+        let p = map unWrapVar $ filter isPerm $ map snd tbl
+        let n = case p of
+                  [] -> 0
+                  _  -> maximum p
+        return $ Perm (n + 1)
+
+newTemp r m = do
+        tbl <- gets symbolTbl
+        let t = filter isTemp $ map snd tbl
+        let p = map unWrapVar $ t ++ r
+        let n = case p of
+                   [] -> m
+                   _  -> max m (maximum p)
+        return $ Temp (n + 1)
 
 -- | Converts a term into a label. eg p(a,b,c) to p/3
 termToLabel :: Term -> WamLabel 
@@ -166,48 +138,55 @@ termToLabel _ = error "cannot convert to wamlabel"
 wamCompileLit :: Bool               -- ^  h is a bool - if true then compilation is a "get" else is a "put" mode
               -> [Term]             -- ^  a list of literals to compile
               -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
-              -> WamSymbolTable     -- ^  the mapping between the name of a variable and the wamregister that referenced to it
-              -> [VarId]            -- ^  the set of permanent variables (scope clause)
-              -> [VarId]            -- ^  the set of unsafe variables (scope clause)
               -> Int                -- ^  a maximum integer used to assign new variables 
-              -> WamInstrSeq        -- ^  the output sequence of wam instructions
-wamCompileLit h [] _ _ _ _ _ = []
-wamCompileLit h (t:ts) (r:rs) tbl perms u n =
+              -> WamCompile WamInstrSeq  -- ^  the output sequence of wam instructions
+wamCompileLit h [] _ _  = return []
+wamCompileLit h (t:ts) (r:rs) n =
     let
        opValue     = if h then GetValue     else PutValue
        opConstant  = if h then GetConstant  else PutConstant
        opStructure = if h then GetStructure else PutStructure
        opVariable  = if h then GetVariable  else PutVariable
     in case t of
-         T (s, []) -> 
-            (opConstant s,[r]) : (wamCompileLit h ts rs tbl perms u n)
-         T (_, args) -> 
-            case r of
-                Temp i -> 
-                    if i > n -- not an argument Temp 1...Temp n is reserved for procedural calls
-                    then (GetStructure (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
-                    else (opStructure  (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
-                _ -> 
-                         (opStructure  (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
-         V v -> 
+         T (s, []) -> do
+            rest <- wamCompileLit h ts rs n
+            return $ (opConstant s, [r]) : rest
+         T (_, args) -> do
+            str  <- case r of
+                     Temp i -> do
+                        if i > n -- not an argument Temp 1...Temp n is reserved for procedural calls
+                        then return (GetStructure (termToLabel t), [r])
+                        else return (opStructure  (termToLabel t), [r]) 
+                     _ -> do
+                             return (opStructure  (termToLabel t), [r]) 
+            rest <- wamCompileTerm h args ts rs n
+            return (str:rest)
+         V v -> do 
+            tbl <- gets symbolTbl
             case lookup v tbl of
-               Just z -> 
+               Just z -> do
+                    u <- gets unsafe'
                     if  v `elem` u
-                    then (PutUnsafeValue, [z,r]) : (wamCompileLit h ts rs tbl perms (delete v u) n)
-                    else (opValue,        [z,r]) : (wamCompileLit h ts rs tbl perms u n)
-               Nothing -> 
-                    let (z,tbl') = newVar tbl perms (r:rs) n v
-                    in (opVariable, [z,r]) : (wamCompileLit h ts rs tbl' perms u n)
-
+                    then do 
+                        modify (\st -> st{unsafe' = (delete v u)})
+                        rest <- wamCompileLit h ts rs n
+                        return $ (PutUnsafeValue, [z,r]) : rest
+                    else do
+                        rest <- wamCompileLit h ts rs n
+                        return $ (opValue,        [z,r]) : rest
+               Nothing -> do 
+                    z <- newVar (r:rs) n v
+                    rest <- wamCompileLit h ts rs n
+                    return $ (opVariable, [z,r]) : rest
 
 -- | Compiles head literals
-wamCompileHeadLit ts perms n = wamCompileLit True ts xs [] perms [] n
+wamCompileHeadLit ts n = wamCompileLit True ts xs n
    where n' = length ts
          xs = map Temp $ reverse [1..n']
 
 
 -- | Compiles a goal literal
-wamCompileGoalLit ts tbl perms u = wamCompileLit False ts xs tbl perms u n
+wamCompileGoalLit ts = wamCompileLit False ts xs n
    where n  = length ts
          xs = map Temp $ reverse [1..n]
 
@@ -216,44 +195,49 @@ wamCompileTerm :: Bool               -- ^  h is a bool - if true then compilatio
                -> [Term]             -- ^  a list of terms to compile
                -> [Term]             -- ^  a list of literals to continue compilation after the compilation of the first argument
                -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
-               -> WamSymbolTable     -- ^  the mapping between the name of a variable and the wamregister that referenced to it
-               -> [VarId]            -- ^  the set of permanent variables (scope clause)
-               -> [VarId]            -- ^  the set of unsafe variables (scope clause)
                -> Int                -- ^  a minimum lower bound integer used to assign new variables
-               -> WamInstrSeq        -- ^  the output sequence of wam instructions
-wamCompileTerm h [] ts rs tbl perms u n =  wamCompileLit h ts rs tbl perms u n
-wamCompileTerm h (a:as) ts rs tbl perms u n =
+               -> WamCompile WamInstrSeq        -- ^  the output sequence of wam instructions
+wamCompileTerm h [] ts rs n     =  wamCompileLit h ts rs n
+wamCompileTerm h (a:as) ts rs n =
     case a of
-       T (s,[]) -> 
-            (UnifyConstant s, []):(wamCompileTerm h as ts rs tbl perms u n)
-       T (s, args) -> 
-            let r' = newTempVar tbl rs n
-            in (UnifyVariable, [r']):(wamCompileTerm h as (a:ts) (r':rs) tbl perms u n)
-       V v ->
+       T (s,[]) -> do
+            rest <- wamCompileTerm h as ts rs n
+            return $ (UnifyConstant s, []) : rest
+       T (s, args) -> do
+            r' <- newTemp rs n
+            rest <- wamCompileTerm h as (a:ts) (r':rs) n
+            return $ (UnifyVariable, [r']) : rest
+       V v -> do
+            tbl <- gets symbolTbl
             case lookup v tbl of
-                Just z -> 
-                    (UnifyValue, [z]):(wamCompileTerm h as ts rs tbl perms u n)
-                Nothing -> 
-                    let (z, tbl') = newVar tbl perms rs n v
-                    in (UnifyVariable, [z]):(wamCompileTerm h as ts rs tbl' perms u n)
+                Just z -> do
+                    rest <- wamCompileTerm h as ts rs n
+                    return $ (UnifyValue, [z]) : rest
+                Nothing -> do
+                    z <- newVar rs n v
+                    rest <- wamCompileTerm h as ts rs n
+                    return $ (UnifyVariable, [z]):rest 
 
 -- | Compiles the body consisted of many body literals
-wamCompileBody [] _ _ _ _ = [(Proceed, [])]
-wamCompileBody [g] tbl perms u e =
+wamCompileBody [] _  = return [(Proceed, [])]
+wamCompileBody [g] e =
    let c' = if e 
             then (Deallocate,[]):c 
             else c
            where c = [(Execute (termToLabel g), [])]
-   in  wamCompileGoalLit (args g) tbl perms u ++ c'
-wamCompileBody (g:gs) tbl perms u e =
-   let as   = args g
-       c    = wamCompileGoalLit as tbl perms u ++ [(Call (termToLabel g), [])]
+   in do 
+         cc <- wamCompileGoalLit (args g)
+         return $ cc ++ c'
 
-       n    = length as
+wamCompileBody (g:gs) e = do
+      c <- wamCompileGoalLit (args g)
 
-       -- symbol table is extended only by the permanent variables
-       tbl' = filter (isPerm.snd) $ extendTable as tbl perms n
-   in c `mplus` (wamCompileBody gs tbl' perms u e)
+      let c' = c ++ [(Call (termToLabel g), [])]
+
+      modify (\st -> st{symbolTbl = filter (isPerm.snd) (symbolTbl st)})
+      cc <- wamCompileBody gs e
+
+      return (c' ++ cc)
 
 
 -- | Compiles a clause
@@ -269,51 +253,63 @@ wamCompileClause cl@(h,b) =
 
         headArgs = args h
 
-        g' = if notSingleton 
-             then (Allocate (length permans), []):g 
-             else g
-            where g = wamCompileHeadLit headArgs permans n
-
         permans = perms cl
         unsafes = unsafe cl
 
-        -- initial symbol table is extended by the variables of the head arguments.
-        -- we assume that extendTable assigns registers to variables exactly like wamCompileHeadLit
-        tbl     = extendTable headArgs [] permans n
+   in do 
 
-   in   g' `mplus` (wamCompileBody b tbl permans unsafes notSingleton)
+        local (\r -> r{ perms' = permans }) $ do
+            modify (\st -> st { symbolTbl = []
+                              , unsafe'   = unsafes
+                              })
+
+            g <- wamCompileHeadLit headArgs n
+
+            let g'= if notSingleton then (Allocate (length permans), []):g else g
+
+            gb <- wamCompileBody b notSingleton
+            return $ g' ++ gb
 
 -- wamCompileGoal
 
 -- | Compiles the many alternative clauses of a predicate
-wamCompileAlters (l:ls) i =
-   let c = wamCompileClause l
-   in case ls of
-        [] -> (TrustMe,[]):c
-        _ ->  let c' = (RetryMeElse j,[]):c
-                  j  = i + length c'
-              in c' `mplus` wamCompileAlters ls j
+wamCompileAlters (l:ls) i = do
+    c <- wamCompileClause l
+    case ls of
+        [] -> do
+            return $ (TrustMe,[]):c
+        _ ->  do 
+            let j  = i + length c + 1
+            let c' = (RetryMeElse j,[]):c
+            alters <- wamCompileAlters ls j            
+            return $ c' ++ alters
+
 
 -- | Compiles a whole predicate consisting of none or many alternatives
-wamCompilePredicate []     i = [(Backtrack, [])]
+wamCompilePredicate []     i = return [(Backtrack, [])]
 wamCompilePredicate [d]    i = wamCompileClause d
-wamCompilePredicate (d:ds) i =
-   let c  = wamCompileClause d
-       c' = (TryMeElse j, []):c
-       j  = i + length c'
-   in c' `mplus` wamCompileAlters ds j
+wamCompilePredicate (d:ds) i = do
+   c  <- wamCompileClause d
+   let j  = i + length c + 1
+   let c' = (TryMeElse j, []):c
+   alters <- wamCompileAlters ds j
+   return $ c' ++ alters
 
 -- | Compiles the definitions of the predicates
 wamCompileDefs :: [WamLabel]      -- ^ list of predicate names to compile
                -> [Clause]      -- ^ clauses of program
                -> Int           -- ^ offset to start
-               -> [WamInstrSeq] -- ^ returns a list of instruction sequence, one for each predicate
-wamCompileDefs [] p i = []
-wamCompileDefs (q:qs) p i =
-   let ds = defs p q
-       c  = wamCompilePredicate ds i
-       j  = i + length c
-   in  c : (wamCompileDefs qs p j)
+               -> WamCompile [WamInstrSeq] -- ^ returns a list of instruction sequence, one for each predicate
+wamCompileDefs [] p i = return []
+wamCompileDefs (q:qs) p i = do
+       c <- wamCompilePredicate (defs p q) i 
+       let j  = i + length c
+       defs <- wamCompileDefs qs p j
+       return $ c : defs
+
+wamCompile m = runIdentity (evalStateT (runReaderT m emptyEnv) emptyState)
+    where emptyState = WamCompState { symbolTbl = [], unsafe' = [] }
+          emptyEnv   = WamCompEnv   { perms' = [] }
 
 -- | Compiles a logic program consisting of many definitions
 wamCompileProg :: [Clause] 
@@ -321,7 +317,7 @@ wamCompileProg :: [Clause]
 wamCompileProg p =
    let ps = preds p
        i  = 1
-       cs = wamCompileDefs ps p i
+       cs = wamCompile (wamCompileDefs ps p i)
    in mkDB $ zip ps cs
 
 wamCompileGoal :: Goal 
@@ -331,6 +327,6 @@ wamCompileGoal g i =
     let g'  = (T ("?", vg'), g)
         vg' = map V $ vg
         vg  = varsGoal g
-    in (reverse vg, wamCompilePredicate [g'] i)
+    in (reverse vg, wamCompile (wamCompilePredicate [g'] i))
 
 

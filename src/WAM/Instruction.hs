@@ -1,6 +1,8 @@
 module WAM.Instruction where
 
 
+import Prolog (VarId)
+
 type WamAddress = Int
 
 -- WAM Operator
@@ -46,7 +48,7 @@ type WamLabel = (String, Int)
 
 type WamIndex = [(WamLabel, WamAddress)]
 
-type WamGoal = ([String], WamInstrSeq)
+type WamGoal = ([VarId], WamInstrSeq)
 
 -- WAM Program
 data WamProgram = 

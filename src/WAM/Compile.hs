@@ -27,26 +27,27 @@ import Debug.Trace
 
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.State
 
+type WAMCompile m a = ReaderT WamCompEnv (StateT WamCompState m) a
 
-type WAMCompile m a = ReaderT WamCompEnv m a
-
-type WamSymbolTable = [(String,WamRegister)]
+type WamSymbolTable = [(VarId,WamRegister)]
 
 data WamCompEnv = WamCompEnv 
-    {   perms'    :: [String]       -- ^ permanent variables
-    ,   unsafe'   :: [String]       -- ^ unsafe variables
-    ,   firstFree :: Int            -- ^ Maximum number of reserved variables 
-    ,   symbolTbl :: WamSymbolTable -- ^ mapping between clause variables and wamregisters
+    {   perms'    :: [VarId]       -- ^ permanent variables    
     }
 
+data WamCompState = WamCompState
+    {   symbolTbl :: WamSymbolTable -- ^ mapping between clause variables and wamregisters 
+    ,   unsafe'   :: [VarId]        -- ^ unsafe variables
+    }
 
 -- | Returns the permanent variables from a clause
 -- | permanent variables are computed as described below : 
 -- | those that exist in more that one body literals
 -- | assuming that the head literal and the first body literal are considered as one
 -- | body literal.
-perms :: Clause -> [String]
+perms :: Clause -> [VarId]
 perms (t, ts) =
     let varsHead = varsTerm t
         varsBody = map varsTerm ts
@@ -63,7 +64,7 @@ perms (t, ts) =
 -- | - the variables in the head literal is safe by default
 -- | - variables in a compound literal (inside term structures) are safe
 -- | - variables that do not occur only in the last literal of the body.
-safe :: Clause -> [String]
+safe :: Clause -> [VarId]
 safe (h, []) = varsTerm h
 safe (h, b)  = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
     where b' = init b
@@ -81,14 +82,14 @@ safe (h, b)  = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
                         inCompound ts
 
 -- | Returns the "unsafe" variables
-unsafe :: Clause -> [String]
+unsafe :: Clause -> [VarId]
 unsafe c@(h,b) = (varsClause c) \\ safe c
 
 
 -- | extendTable 
 extendTable :: [Term]               -- ^ a list of terms
             -> WamSymbolTable       -- ^ current symbol table
-            -> [String]             -- ^ permanent variables
+            -> [VarId]              -- ^ permanent variables
             -> Int                  -- ^ minimum free number
             -> WamSymbolTable       -- ^ returns new extended symbol table
 extendTable ts tbl perms n =
@@ -120,10 +121,10 @@ extendTable ts tbl perms n =
 -- | the symbol table with a new permanent register. if not then we extend it with
 -- | a new temp register.
 extendTblNewVar :: WamSymbolTable       -- ^ current symbol table
-                -> [String]             -- ^ permanents variables
+                -> [VarId]              -- ^ permanents variables
                 -> [WamRegister]        -- ^ reserved registers
                 -> Int                  -- ^ minimum free number
-                -> String               -- ^ name of variable
+                -> VarId                -- ^ name of variable
                 -> WamSymbolTable       -- ^ returns new symbol table
 extendTblNewVar tbl perms r n v | v `elem` perms = (v, newPermVar tbl):tbl
                                 | otherwise      = (v, newTempVar tbl r n):tbl
@@ -166,8 +167,8 @@ wamCompileLit :: Bool               -- ^  h is a bool - if true then compilation
               -> [Term]             -- ^  a list of literals to compile
               -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
               -> WamSymbolTable     -- ^  the mapping between the name of a variable and the wamregister that referenced to it
-              -> [String]           -- ^  the set of permanent variables (scope clause)
-              -> [String]           -- ^  the set of unsafe variables (scope clause)
+              -> [VarId]            -- ^  the set of permanent variables (scope clause)
+              -> [VarId]            -- ^  the set of unsafe variables (scope clause)
               -> Int                -- ^  a maximum integer used to assign new variables 
               -> WamInstrSeq        -- ^  the output sequence of wam instructions
 wamCompileLit h [] _ _ _ _ _ = []
@@ -183,7 +184,7 @@ wamCompileLit h (t:ts) (r:rs) tbl perms u n =
          T (_, args) -> 
             case r of
                 Temp i -> 
-                    if i > n 
+                    if i > n -- not an argument Temp 1...Temp n is reserved for procedural calls
                     then (GetStructure (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
                     else (opStructure  (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
                 _ -> 
@@ -216,9 +217,9 @@ wamCompileTerm :: Bool               -- ^  h is a bool - if true then compilatio
                -> [Term]             -- ^  a list of literals to continue compilation after the compilation of the first argument
                -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
                -> WamSymbolTable     -- ^  the mapping between the name of a variable and the wamregister that referenced to it
-               -> [String]           -- ^  the set of permanent variables (scope clause)
-               -> [String]           -- ^  the set of unsafe variables (scope clause)
-               -> Int                -- ^  a maximum integer used to assign new variables 
+               -> [VarId]            -- ^  the set of permanent variables (scope clause)
+               -> [VarId]            -- ^  the set of unsafe variables (scope clause)
+               -> Int                -- ^  a minimum lower bound integer used to assign new variables
                -> WamInstrSeq        -- ^  the output sequence of wam instructions
 wamCompileTerm h [] ts rs tbl perms u n =  wamCompileLit h ts rs tbl perms u n
 wamCompileTerm h (a:as) ts rs tbl perms u n =

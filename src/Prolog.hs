@@ -17,10 +17,12 @@ module Prolog where
 import Text.ParserCombinators.Parsec
 import Data.List (nub)
 
+type VarId = String -- deriving (Eq, Show)
+
 data Term    =  
     T (String, [Term]) 
-  | V String
-  | V2 (String, [Term]) 
+  | V VarId
+  | V2 (VarId, [Term]) 
   deriving (Show, Eq)
 
 type Clause  = (Term, [Term])

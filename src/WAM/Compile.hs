@@ -28,8 +28,10 @@ import Debug.Trace
 import Control.Monad
 import Control.Monad.Reader
 
-{-
+
 type WAMCompile m a = ReaderT WamCompEnv m a
+
+type WamSymbolTable = [(String,WamRegister)]
 
 data WamCompEnv = WamCompEnv 
     {   perms'    :: [String]       -- ^ permanent variables
@@ -37,22 +39,31 @@ data WamCompEnv = WamCompEnv
     ,   firstFree :: Int            -- ^ Maximum number of reserved variables 
     ,   symbolTbl :: WamSymbolTable -- ^ mapping between clause variables and wamregisters
     }
--}
+
 
 -- | Returns the permanent variables from a clause
+-- | permanent variables are computed as described below : 
+-- | those that exist in more that one body literals
+-- | assuming that the head literal and the first body literal are considered as one
+-- | body literal.
 perms :: Clause -> [String]
 perms (t, ts) =
-    let headvars = varsTerm t
-        bodyvarlst = map varsTerm ts
-        lst = case bodyvarlst of
-                  [] -> [headvars]
-                  (t:ts) -> (nub (headvars ++ t)):ts
+    let varsHead = varsTerm t
+        varsBody = map varsTerm ts
+        lst = case varsBody of
+                  [] -> [varsHead]
+                  (v:vs) -> (nub (varsHead ++ v)):vs
         aux [] = []
         aux (l:ls) = (filter (`elem` l') l) ++ aux ls 
             where l' = concat ls
     in nub $ aux lst
 
 -- | Returns the "safe" variables
+-- | safe variables are computed as described below
+-- | - the variables in the head literal is safe by default
+-- | - variables in a compound literal (inside term structures) are safe
+-- | - variables that do not occur only in the last literal of the body.
+safe :: Clause -> [String]
 safe (h, []) = varsTerm h
 safe (h, b)  = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
     where b' = init b
@@ -69,13 +80,10 @@ safe (h, b)  = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
                     V _ -> 
                         inCompound ts
 
-
 -- | Returns the "unsafe" variables
 unsafe :: Clause -> [String]
 unsafe c@(h,b) = (varsClause c) \\ safe c
 
-
-type WamSymbolTable = [(String,WamRegister)]
 
 -- | extendTable 
 extendTable :: [Term]               -- ^ a list of terms
@@ -108,6 +116,9 @@ extendTable ts tbl perms n =
     where xs = map Temp $ reverse [1..length ts]
 
 -- | extend symbol table with a new variable
+-- | if the variable belongs to the permanent variables then we extend the 
+-- | the symbol table with a new permanent register. if not then we extend it with
+-- | a new temp register.
 extendTblNewVar :: WamSymbolTable       -- ^ current symbol table
                 -> [String]             -- ^ permanents variables
                 -> [WamRegister]        -- ^ reserved registers
@@ -142,6 +153,12 @@ newTempVar tbl r m = Temp (n + 1)
                  [] -> m
                  _  -> max m (maximum p)
 
+
+-- | Converts a term into a label. eg p(a,b,c) to p/3
+termToLabel :: Term -> WamLabel 
+termToLabel (T (s, args)) = (s, length args)
+termToLabel _ = error "cannot convert to wamlabel"
+
 -- WAM Compilation
 
 -- | Compiles a literal, either a head literal or a body literal
@@ -163,14 +180,14 @@ wamCompileLit h (t:ts) (r:rs) tbl perms u n =
     in case t of
          T (s, []) -> 
             (opConstant s,[r]) : (wamCompileLit h ts rs tbl perms u n)
-         T (s, args) -> 
+         T (_, args) -> 
             case r of
                 Temp i -> 
                     if i > n 
-                    then (GetStructure (s,length args), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
-                    else (opStructure  (s,length args), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
+                    then (GetStructure (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
+                    else (opStructure  (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
                 _ -> 
-                         (opStructure  (s,length args), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
+                         (opStructure  (termToLabel t), [r]) : (wamCompileTerm h args ts rs tbl perms u n)
          V v -> 
             case lookup v tbl of
                Just z -> 
@@ -222,23 +239,27 @@ wamCompileTerm h (a:as) ts rs tbl perms u n =
 -- | Compiles the body consisted of many body literals
 wamCompileBody [] _ _ _ _ = [(Proceed, [])]
 wamCompileBody [g] tbl perms u e =
-   let T (s,args) = g
-       c' = if e 
+   let c' = if e 
             then (Deallocate,[]):c 
             else c
-           where c = [(Execute (s,length args), [])]
-   in  wamCompileGoalLit args tbl perms u ++ c'
+           where c = [(Execute (termToLabel g), [])]
+   in  wamCompileGoalLit (args g) tbl perms u ++ c'
 wamCompileBody (g:gs) tbl perms u e =
-   let T (s,args) = g
-       c    = wamCompileGoalLit args tbl perms u ++ [(Call (s,length args), [])]
-       n    = length args
-       tbl' = filter (isPerm.snd) $ extendTable args tbl perms n
+   let as   = args g
+       c    = wamCompileGoalLit as tbl perms u ++ [(Call (termToLabel g), [])]
+
+       n    = length as
+
+       -- symbol table is extended only by the permanent variables
+       tbl' = filter (isPerm.snd) $ extendTable as tbl perms n
    in c `mplus` (wamCompileBody gs tbl' perms u e)
 
 
 -- | Compiles a clause
 wamCompileClause cl@(h,b) =
-   let  n = if isFact
+   let  
+        -- n registers are reserved for arguments of first literal in body (?)
+        n = if isFact
             then 0 
             else length (args (head b))
 
@@ -254,6 +275,9 @@ wamCompileClause cl@(h,b) =
 
         permans = perms cl
         unsafes = unsafe cl
+
+        -- initial symbol table is extended by the variables of the head arguments.
+        -- we assume that extendTable assigns registers to variables exactly like wamCompileHeadLit
         tbl     = extendTable headArgs [] permans n
 
    in   g' `mplus` (wamCompileBody b tbl permans unsafes notSingleton)
@@ -265,8 +289,8 @@ wamCompileAlters (l:ls) i =
    let c = wamCompileClause l
    in case ls of
         [] -> (TrustMe,[]):c
-        _ ->  let j  = length c + i + 1
-                  c' = (RetryMeElse j,[]):c
+        _ ->  let c' = (RetryMeElse j,[]):c
+                  j  = i + length c'
               in c' `mplus` wamCompileAlters ls j
 
 -- | Compiles a whole predicate consisting of none or many alternatives
@@ -275,7 +299,7 @@ wamCompilePredicate [d]    i = wamCompileClause d
 wamCompilePredicate (d:ds) i =
    let c  = wamCompileClause d
        c' = (TryMeElse j, []):c
-       j  = length c + i + 1
+       j  = i + length c'
    in c' `mplus` wamCompileAlters ds j
 
 -- | Compiles the definitions of the predicates
@@ -287,7 +311,7 @@ wamCompileDefs [] p i = []
 wamCompileDefs (q:qs) p i =
    let ds = defs p q
        c  = wamCompilePredicate ds i
-       j  = length c + i
+       j  = i + length c
    in  c : (wamCompileDefs qs p j)
 
 -- | Compiles a logic program consisting of many definitions

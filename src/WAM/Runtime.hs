@@ -12,69 +12,27 @@
 --
 -----------------------------------------------------------------------------
 
-module WAM.Runtime (
-    evalWam,
-    wamExecute,
-    dumpCell
-) where
+module WAM.Runtime ( 
+     wamExecute
+   , evalWam
+   ) where
 
+import Prolog (VarId)
 import WAM
-import WAM.Emit
+import WAM.Runtime.Mem
+import WAM.Runtime.Trace
+
+
 import Control.Monad
 import Control.Monad.State
-import Control.Monad.Cont
-import System.IO
-import Data.Array.IO
-
-data WamCell =
-       Struct WamLabel          -- (f/n)
-     | Var WamAddress           -- REF n
-     | Str WamAddress           -- STR n
-     | Cons String              -- CONS s
-     | App WamAddress Int       -- APP n m
-     | Addr WamAddress
-     deriving (Eq, Show)
-
-isVarCell (Var _) = True
-isVarCell _ = False
-
-type WamMem  = IOArray WamAddress WamCell
-type WamCode = IOArray WamAddress WamInstr
-
-
-data WamState = WamState { idx   :: WamIndex      -- ^ predicate index
-                         , mem   :: WamMem        -- ^ global space of memory
-                         , code  :: WamCode       -- ^ instructions
-                         , regs  :: WamMem        -- ^ registers
-                         , reg_p :: WamAddress    -- ^ register pointing  to code
-                         , reg_t :: WamAddress    -- ^ register pointing at the top of trail
-                         , reg_c :: WamAddress    -- ^ register to hold the last code before a call
-                         , reg_h :: WamAddress    -- ^ register pointing at the top of heap (global stack)
-                         , reg_b :: WamAddress    -- ^ register pointing at the top of backtrack (local stack)
-                         , reg_e :: WamAddress    -- ^ register pointing at the top of the environment (local stack)
-                         , reg_a :: Int           -- ^ register holding the arity of the argument
-                         , reg_s :: WamAddress    -- ^ structure pointer
-                         }
 
 -- type WamRuntime = StateT WamState (ContT () IO)
-type WamRuntime = ContT () (StateT WamState IO)
+type WamRuntime = WamTraceT (StateT WamState IO)
 
--- memory management
-
--- | changes the content of the cell in the global memory space
-change_cell i c = do
-    st <- gets mem
-    liftIO $ writeArray st i c
-
-get_cell i = do
-    st <- gets mem
-    liftIO $ readArray st i
+type WamResult = [(VarId, WamCell)]
 
 -- | make cell i unbound, namely a variable cell with self-reference
 create_unbound i = change_cell i (Var i)
-
--- | saves the content of a register in the cell in memory
-save_reg i r = gets r >>= \a -> change_cell i (Addr a)
 
 -- code control
 
@@ -86,7 +44,7 @@ jump :: WamAddress -> WamRuntime ()
 jump p' = modify (\s -> s{reg_p = p'})
 
 -- | read the wam instruction from the current location of p
-readinstr n = gets reg_p >>= \p -> gets code >>= \st -> liftIO $ readArray st (n)
+readinstr n = get_instr n
 
 set_return_address :: WamRuntime ()
 set_return_address = gets reg_p >>= \p -> modify (\s -> s{reg_c = p})
@@ -115,13 +73,6 @@ set_perm i c = do
     a <- get_perm_real_addr i
     change_cell a c
 
-get_temp i = do
-    rs <- gets regs
-    liftIO $ readArray rs i
-
-set_temp i c = do
-    rs <- gets regs
-    liftIO $ writeArray rs i c
 
 -- | get content of a register
 get_content (Perm i) = get_perm i
@@ -129,11 +80,10 @@ get_content (Temp i) = get_temp i
 
 -- | set content of a register
 set_content (Perm i) = set_perm i
-
 set_content (Temp i) = set_temp i
 
-save_arg i a = get_temp a >>= change_cell i
 
+save_arg i a = get_temp a >>= change_cell i
 restore_arg i a = get_cell i >>= set_temp a
 
 
@@ -144,42 +94,6 @@ set_arity n = modify (\s -> s{reg_a = n})
 next_arg :: WamRuntime ()
 next_arg = gets reg_s >>= \s -> modify (\st -> st{reg_s = s + 1})
 
--- trace 
-
-dumpState :: WamRuntime ()
-dumpState = do
-    h <- gets reg_h
-    m <- gets mem
-    hs <- liftIO $ mapM (readArray m) [1..h]
-    liftIO $ putStrLn ("h = " ++ show h)
-    liftIO $ putStrLn (show hs)
-
-dumpCell i = let
-        sepStr' [] _ = ""
-        sepStr' [x] _ = x
-        sepStr' (x:xs) del = x ++ del ++ (sepStr' xs del)
-    in do
-    v <- deref i
-    case v of
-       Var i -> 
-            return ("V"++show i)
-       Str i -> do
-            Struct (funct,arity) <- get_cell i
-            cs <- get_cells (i+1) arity
-            ss <- mapM dumpCell cs
-            return (funct ++ "(" ++ sepStr' ss "," ++ ")")
-       Cons a -> 
-            return a
-       _ ->
-            error ("cannot print " ++ show v)
-
-
-traceCommand i = do
-    liftIO $ putStr (wamEmitInstr i)
-    let (_,rs) = i
-    rs' <- mapM (\i -> get_content i >>= dumpCell) rs
-    liftIO $ putStrLn (show rs')
-
 
 -- error 
 
@@ -189,69 +103,30 @@ hasChoicePoint = do
     b <- gets reg_b
     return (b > 1000)
 
-emptyWamState = 
-    WamState { idx  = undefined
-             , mem  = undefined
-             , code = undefined
-             , regs = undefined
-             , reg_p = 0
-             , reg_c = 0
-             , reg_b = 0
-             , reg_s = 0
-             , reg_a = 0
-             , reg_t = 0
-             , reg_h = 0
-             , reg_e = 0
-             }
+evalWam m = evalStateT (runTraceT m) emptyWamState
 
-evalWam m = evalStateT (runContT m return) emptyWamState
-
-wamExecute :: WamProgram                     -- ^ the compiled wam program
-           -> WamGoal                        -- ^ the compiled goal
-           -> WamRuntime [(String,WamCell)]  -- ^ a list of wamcells containing the goal variables
+wamExecute :: WamProgram            -- ^ the compiled wam program
+           -> WamGoal               -- ^ the compiled goal
+           -> WamRuntime WamResult  -- ^ a list of wamcells containing the goal variables
 wamExecute p g =
     let index = wamIndex p
         instr = wamCode p
-
-        {-
-        ((g_name, g_arity), g_addr) = 
-               case filter (\((x,i),_) -> x == "?") index of
-                          []  -> error "goal not found"
-                          [x] -> x
-        -}
 
         (vars, goal) = g
         g_arity      = length vars
         g_addr       = length instr + 1
 
         init = do
-            init_prog
+            init_prog (instr ++ goal)
             init_mem (2^20) 100
 
-        init_prog = do
-            c <- liftIO $ newListArray (1, 1024) (instr ++ goal)
-            modify (\st -> st{ code  = c
-                             , idx   = index
+        init_prog i = do
+            init_code i 
+            modify (\st -> st{ idx   = index
                              , reg_p = 0
                              , reg_c = 0
                              , reg_s = 0
                              })
-
-        init_mem arraysize regnum = do
-            m <- liftIO $ newArray_ (1, arraysize) :: WamRuntime (IOArray WamAddress WamCell)
-            r <- liftIO $ newArray_ (1, regnum)    :: WamRuntime (IOArray Int WamCell)
-            modify (\st -> st{ mem   = m
-                             , regs  = r
-                             , reg_e = startAndStack
-                             , reg_b = startOrStack
-                             , reg_h = startHeap
-                             , reg_t = startTrail
-                             })
-          where startHeap     = 0
-                startAndStack = startHeap + 1000
-                startOrStack  = startAndStack
-                startTrail    = startAndStack + 1000
-
         init_goal = do 
             set_arity g_arity
             mapM_ (\i -> create_unbound i >> restore_arg i i) [1..g_arity]
@@ -273,12 +148,11 @@ wamExecute p g =
         cells <- get_cells 1 g_arity
         return $ zip vars cells
 
-
 step = do
     i <- gets reg_p >>= readinstr
     advance 1
     sem i
-    traceCommand i
+    trace i
 
 deref a =
     case a of
@@ -384,8 +258,6 @@ precedes _ _ = unexpected "cell content not variables"
 
 -- occur check not implemented
 occursin x y = False
-
-get_cells start count = mapM get_cell [start..(start+count-1)]
 
 unify_lists [] _ = return ()
 unify_lists (x:xs) (y:ys) = let

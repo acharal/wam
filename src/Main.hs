@@ -18,7 +18,8 @@ import Prolog
 
 import WAM.Instruction
 import WAM.Compile (wamCompileProg, wamCompileGoal)
-import WAM.Runtime (dumpCell, evalWam, wamExecute)
+import WAM.Runtime (evalWam, wamExecute)
+import WAM.Runtime.Trace (dumpCell)
 import WAM.Emit (wamEmitProg)
 
 import System.IO
@@ -114,7 +115,7 @@ main = do
 printWamVars gs = 
     let printBinding (v,i) = do
             cell <- dumpCell i
-            liftIO $ putStr (v ++ "=" ++ cell)
+            liftIO $ putStr (v ++ "=" ++ cell ++ "\n")
     in mapM_ printBinding gs
 
 runWam (compiledGoal, compiledProg) = 

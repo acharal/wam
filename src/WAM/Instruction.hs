@@ -50,6 +50,7 @@ type WamIndex = [(WamLabel, WamAddress)]
 
 type WamGoal = ([VarId], WamInstrSeq)
 
+
 -- WAM Program
 data WamProgram = 
     DB { wamIndex    :: WamIndex 

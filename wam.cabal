@@ -16,7 +16,8 @@ homepage:       https://github.com/acharal/wam
 bug-reports:    https://github.com/acharal/wam/issues
 
 build-depends: array -any, transformers -any, mtl -any,
-               parsec -any, base -any, pretty -any
+               parsec -any, base -any, pretty -any,
+               monad-coroutine >= 0.6
 package-url:
 
 
@@ -32,11 +33,16 @@ buildable: True
 hs-source-dirs: src
 other-modules:  WAM 
                 WAM.Runtime 
+		WAM.Runtime.Trace
                 WAM.Compile 
                 WAM.Emit
                 WAM.Instruction
                 Prolog
-extensions: DoAndIfThenElse
+extensions: DoAndIfThenElse,
+	    NoMonomorphismRestriction,
+            FlexibleInstances,
+            MultiParamTypeClasses,
+            UndecidableInstances
 ghc-prof-options: -prof -auto-all
 ghc-shared-options:
 ghc-options:

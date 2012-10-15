@@ -27,7 +27,7 @@ import Control.Monad
 import Control.Monad.State
 
 -- type WamRuntime = StateT WamState (ContT () IO)
-type WamRuntime = WamTraceT (StateT WamState IO)
+type WamRuntime = TraceT WamInstr (StateT WamState IO)
 
 type WamResult = [(VarId, WamCell)]
 

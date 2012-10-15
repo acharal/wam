@@ -1,4 +1,9 @@
-module WAM.Emit (wamEmitInstr, wamEmitProg) where
+module WAM.Emit ( wamEmitInstr
+                , wamEmitProg
+                , pprReg
+                , pprRegs
+                , pprInstr
+                ) where
 
 import WAM.Instruction
 import Text.PrettyPrint
@@ -46,7 +51,4 @@ pprProg p = (vcat $ map pprInstr $ wamCode p) $$ (pprIdx $ wamIndex p)
 
 wamEmitInstr i    = render $ pprInstr i
 wamEmitProg (_,p) = render $ pprProg p
-
-dumpIndex [] = ""
-dumpIndex (((s,n),i):idx) = "(" ++ s ++ "/" ++ show n ++ ", " ++ show i ++ ")\n" ++ dumpIndex idx
 

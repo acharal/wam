@@ -3,6 +3,7 @@ module WAM.Runtime.Trace where
 import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors
 import Control.Monad.State
+import Control.Monad.Trans
 
 import WAM.Instruction
 import WAM.Emit
@@ -10,20 +11,40 @@ import WAM.Runtime.Mem
 
 import Text.PrettyPrint hiding (Str)
 
-type TraceT s = Coroutine (Yield s)
+{-
+ - trace before and after the execution of an instruction
+ - show content of registers involved in an instruction
+ - pause execution waiting for user to resume
+ - show stack and content of registers
+-}
 
-type WamTraceT = TraceT WamInstr
+newtype TraceT s m a = TraceT { unTrace :: Coroutine (Yield s) m a }
 
-trace = yield
+-- type WamTraceT = TraceT WamInstr
 
-runTraceT m = pogoStick traceInstr m
+trace i = TraceT (yield i)
+
+runTraceT m = pogoStick traceInstr (unTrace m)
     where traceInstr (Yield i c) =  traceCommand i >> c
 --    where traceInstr (Yield _ c) = c
+
+instance Monad m => Monad (TraceT s' m) where
+    return  = TraceT . return
+    a >>= b = TraceT (unTrace a >>= \x -> unTrace (b x))
+
+instance MonadIO m => MonadIO (TraceT s' m) where
+    liftIO = lift . liftIO 
+
+instance MonadTrans (TraceT s') where
+    lift = TraceT . lift
+
+instance MonadState s m => MonadState s (TraceT s' m) where
+    get = lift get
+    put = lift . put
 
 instance (Functor s', MonadState s m) => MonadState s (Coroutine s' m) where
     get = lift get
     put = lift . put
-
 
 -- trace 
 
@@ -55,7 +76,7 @@ pprCell i = do
     v <- deref' i
     case v of
        Var i -> 
-            return (text "_X" <> int i)
+            return (text "X" <> int i)
        Str i -> do
             Struct (funct, arity) <- get_cell i
             cs <- get_cells (i+1) arity
@@ -66,8 +87,10 @@ pprCell i = do
        _ ->
             error ("cannot print " ++ show v)
 
+{- p : command : { register values }  -}
+
 traceCommand i = do
-    liftIO $ putStr (wamEmitInstr i)
+    liftIO $ putStr (render $ pprInstr i)
     liftIO $ putStr "\n"
 --    let (_,rs) = i
 --    rs' <- mapM (\i -> get_content i >>= dumpCell) rs

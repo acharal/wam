@@ -15,6 +15,7 @@
 module Main where
 
 import Prolog
+import Prolog.Parser
 
 import WAM.Instruction
 import WAM.Compile (wamCompileProg, wamCompileGoal)

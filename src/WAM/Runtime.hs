@@ -20,16 +20,31 @@ module WAM.Runtime (
 import Prolog (VarId)
 import WAM
 import WAM.Runtime.Mem
-import WAM.Runtime.Trace
+import WAM.Runtime.Trace (MonadTrace, trace)
 
 
 import Control.Monad
 import Control.Monad.State
 
 -- type WamRuntime = StateT WamState (ContT () IO)
-type WamRuntime = TraceT WamInstr (StateT WamState IO)
+newtype WamRuntime c i a = WamRuntime { unWam :: (StateT (WamState c i) IO a) }
 
-type WamResult = [(VarId, WamCell)]
+instance Monad (WamRuntime c i) where
+	return s = WamRuntime $ return s
+	m >>= f =  WamRuntime (unWam m >>= \s -> unWam (f s))
+
+instance MonadState (WamState c i) (WamRuntime c i) where
+	get = WamRuntime $ get
+	put s = WamRuntime $ put s
+
+instance MonadIO (WamRuntime c i) where
+	liftIO io = WamRuntime (liftIO io)
+
+instance MonadTrace a (WamRuntime c i) where
+	trace a = return ()
+
+type WamResult c = [(VarId, c)]
+
 
 -- | make cell i unbound, namely a variable cell with self-reference
 create_unbound i = change_cell i (Var i)
@@ -40,47 +55,23 @@ create_unbound i = change_cell i (Var i)
 advance n = gets reg_p >>= \p ->  jump (p + n)
 
 -- | jump to a specific address
-jump :: WamAddress -> WamRuntime ()
+-- jump :: WamAddress -> WamRuntime ()
 jump p' = modify (\s -> s{reg_p = p'})
 
 -- | read the wam instruction from the current location of p
 readinstr n = get_instr n
 
-set_return_address :: WamRuntime ()
+-- set_return_address :: WamRuntime ()
 set_return_address = gets reg_p >>= \p -> modify (\s -> s{reg_c = p})
 
-set_structure_pointer :: WamAddress -> WamRuntime ()
+-- set_structure_pointer :: WamAddress -> WamRuntime ()
 set_structure_pointer s = modify (\st -> st{reg_s = s})
 
-proceed :: WamRuntime ()
+-- proceed :: WamRuntime ()
 proceed = gets reg_c >>= \c -> jump c
 
 -- register management
 
--- | translate address of permanent variable based on environment register
-get_perm_real_addr :: WamAddress -> WamRuntime WamAddress
-get_perm_real_addr i = do
-    e <- gets reg_e
-    return (e-1-i)
-
-get_perm :: WamAddress -> WamRuntime WamCell
-get_perm i = do
-    a <- get_perm_real_addr i
-    get_cell a
-
-set_perm :: WamAddress -> WamCell -> WamRuntime ()
-set_perm i c = do
-    a <- get_perm_real_addr i
-    change_cell a c
-
-
--- | get content of a register
-get_content (Perm i) = get_perm i
-get_content (Temp i) = get_temp i
-
--- | set content of a register
-set_content (Perm i) = set_perm i
-set_content (Temp i) = set_temp i
 
 
 save_arg i a = get_temp a >>= change_cell i
@@ -91,7 +82,7 @@ restore_arg i a = get_cell i >>= set_temp a
 
 set_arity n = modify (\s -> s{reg_a = n})
 
-next_arg :: WamRuntime ()
+-- next_arg :: WamRuntime ()
 next_arg = gets reg_s >>= \s -> modify (\st -> st{reg_s = s + 1})
 
 
@@ -103,11 +94,13 @@ hasChoicePoint = do
     b <- gets reg_b
     return (b > 1000)
 
-evalWam m = evalStateT (runTraceT m) emptyWamState
+evalWam m = evalStateT (unWam m) emptyWamState
 
+{-
 wamExecute :: WamProgram            -- ^ the compiled wam program
            -> WamGoal               -- ^ the compiled goal
            -> WamRuntime WamResult  -- ^ a list of wamcells containing the goal variables
+-}
 wamExecute p g =
     let index = wamIndex p
         instr = wamCode p
@@ -148,11 +141,17 @@ wamExecute p g =
         cells <- get_cells 1 g_arity
         return $ zip vars cells
 
-step = do
+withTrace m = do 
+    p <- gets reg_p
+    i <- get_instr p
+    a <- m
+    trace (p,i)
+    return a
+
+step = withTrace $ do
     i <- gets reg_p >>= readinstr
     advance 1
     sem i
-    trace i
 
 deref a =
     case a of
@@ -166,7 +165,6 @@ deref a =
           unBound _ _ = False
 
 
-allocate :: Int -> WamRuntime ()
 allocate n = do
     b <- gets reg_b
     e <- gets reg_e
@@ -178,7 +176,7 @@ allocate n = do
     change_cell (k+n+2) (Addr e)
     modify (\s -> s{reg_e = k + n + 2})
 
-deallocate :: WamRuntime ()
+
 deallocate = do
     e  <- gets reg_e
     let k = e
@@ -425,7 +423,7 @@ unwind t = do
         mapM_ (create_unbound) (map (\(Addr a)->a) ts)
         modify (\s -> s{reg_t = t})
 
-backtrack :: WamRuntime ()
+-- backtrack :: WamRuntime ()
 backtrack = do
     k <- gets reg_b
     (Addr p) <- get_cell k
@@ -445,8 +443,10 @@ backtrack = do
                    })
 
 -- | sem executes the operational semantics of the wam instruction
+{-
 sem :: WamInstr         -- ^ the wam instruction
     -> WamRuntime () 
+-}
 sem (Allocate n, _)         = allocate n
 sem (Deallocate, _)         = deallocate
 sem (Proceed, _)            = proceed

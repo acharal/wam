@@ -20,7 +20,7 @@ import Prolog.Parser
 import WAM.Instruction
 import WAM.Compile (wamCompileProg, wamCompileGoal)
 import WAM.Runtime (evalWam, wamExecute)
-import WAM.Runtime.Trace (dumpCell)
+import WAM.Runtime.Trace (dumpCell, runTraceT, runNoTraceT, traceCommand)
 import WAM.Emit (wamEmitProg)
 
 import System.IO
@@ -44,13 +44,13 @@ data Options = Options {
 
 options :: [ OptDescr (Options -> IO Options) ]
 options = [
-    Option ['i'] ["input"] (ReqArg (\arg opt -> return opt{inputFile = arg})  "FILE")
+    Option ['i'] ["input"]   (ReqArg (\arg opt -> return opt{inputFile = arg})  "FILE")
         "input file",
-    Option ['o'] ["output"] (ReqArg (\arg opt -> return opt{outputFile = Just arg}) "FILE")
+    Option ['o'] ["output"]  (ReqArg (\arg opt -> return opt{outputFile = Just arg}) "FILE")
         "output file",
     Option ['c'] ["compile"] (NoArg (\opt -> return opt{onlyCompile = True}))
         "just compile not run",
-    Option ['w'] ["wam"] (ReqArg (\arg opt -> return opt{wamFile = Just arg}) "FILE")
+    Option ['w'] ["wam"]     (ReqArg (\arg opt -> return opt{wamFile = Just arg}) "FILE")
         "wam file to run",
     Option ['V'] ["version"] (NoArg (\_ -> do
                                         prg <- getProgName
@@ -59,14 +59,12 @@ options = [
         "Show version",
     Option ['v'] ["verbose"] (NoArg (\opt -> return opt{verbose = True}))
         "Verbose mode",
-    Option ['h'] ["help"] (NoArg (\_ -> do
-                                     prg <- getProgName
-                                     hPutStrLn stderr (usageInfo prg options)
-                                     exitWith ExitSuccess))
+    Option ['h'] ["help"]    (NoArg (\_ -> do
+                                             prg <- getProgName
+                                             hPutStrLn stderr (usageInfo prg options)
+                                             exitWith ExitSuccess))
         "Show help"
     ]
---            RegArg (\arg opt -> return opt
-
 
 
 -- Main
@@ -120,7 +118,7 @@ printWamVars gs =
     in mapM_ printBinding gs
 
 runWam (compiledGoal, compiledProg) = 
-    evalWam $ do 
+    evalWam $ runTraceT traceCommand $  do 
         gs <- wamExecute compiledProg compiledGoal
         printWamVars gs
 

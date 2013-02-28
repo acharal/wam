@@ -14,30 +14,27 @@ data WamCell =
      | Addr WamAddress
      deriving (Eq, Show)
 
-
-
 isVarCell (Var _) = True
 isVarCell _ = False
 
+type WamMem c = IOArray WamAddress c
 
-type WamMem  = IOArray WamAddress WamCell
-
-type WamCode = IOArray WamAddress WamInstr
+type WamCode i = IOArray WamAddress i
 
 
-data WamState = WamState { idx   :: WamIndex      -- ^ predicate index
-                         , mem   :: WamMem        -- ^ global space of memory
-                         , code  :: WamCode       -- ^ instructions
-                         , regs  :: WamMem        -- ^ registers
-                         , reg_p :: WamAddress    -- ^ register pointing  to code
-                         , reg_t :: WamAddress    -- ^ register pointing at the top of trail
-                         , reg_c :: WamAddress    -- ^ register to hold the last code before a call
-                         , reg_h :: WamAddress    -- ^ register pointing at the top of heap (global stack)
-                         , reg_b :: WamAddress    -- ^ register pointing at the top of backtrack (local stack)
-                         , reg_e :: WamAddress    -- ^ register pointing at the top of the environment (local stack)
-                         , reg_a :: Int           -- ^ register holding the arity of the argument
-                         , reg_s :: WamAddress    -- ^ structure pointer
-                         }
+data WamState c i = WamState { idx   :: WamIndex      -- ^ predicate index
+                             , mem   :: WamMem c      -- ^ global space of memory
+                             , code  :: WamCode i     -- ^ instructions
+                             , regs  :: WamMem c      -- ^ registers
+                             , reg_p :: WamAddress    -- ^ register pointing  to code
+                             , reg_t :: WamAddress    -- ^ register pointing at the top of trail
+                             , reg_c :: WamAddress    -- ^ register to hold the last code before a call
+                             , reg_h :: WamAddress    -- ^ register pointing at the top of heap (global stack)
+                             , reg_b :: WamAddress    -- ^ register pointing at the top of backtrack (local stack)
+                             , reg_e :: WamAddress    -- ^ register pointing at the top of the environment (local stack)
+                             , reg_a :: Int           -- ^ register holding the arity of the argument
+                             , reg_s :: WamAddress    -- ^ structure pointer
+                             }
 
 
 emptyWamState = 
@@ -105,4 +102,29 @@ get_temp i = do
 set_temp i c = do
     rs <- gets regs
     liftIO $ writeArray rs i c
+
+-- | translate address of permanent variable based on environment register
+-- get_perm_real_addr :: WamAddress -> WamRuntime WamAddress
+get_perm_real_addr i = do
+    e <- gets reg_e
+    return (e-1-i)
+
+-- get_perm :: WamAddress -> WamRuntime WamCell
+get_perm i = do
+    a <- get_perm_real_addr i
+    get_cell a
+
+-- set_perm :: WamAddress -> WamCell -> WamRuntime ()
+set_perm i c = do
+    a <- get_perm_real_addr i
+    change_cell a c
+
+
+-- | get content of a register
+get_content (Perm i) = get_perm i
+get_content (Temp i) = get_temp i
+
+-- | set content of a register
+set_content (Perm i) = set_perm i
+set_content (Temp i) = set_temp i
 

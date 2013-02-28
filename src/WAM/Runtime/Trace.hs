@@ -20,13 +20,31 @@ import Text.PrettyPrint hiding (Str)
 
 newtype TraceT s m a = TraceT { unTrace :: Coroutine (Yield s) m a }
 
+
+class Monad m => MonadTrace a m where
+	trace :: a -> m ()
+
+instance Monad m => MonadTrace a (TraceT a m) where
+	trace a = TraceT (yield a)
+
 -- type WamTraceT = TraceT WamInstr
 
-trace i = TraceT (yield i)
+{-
+trace' i = TraceT (yield i)
 
-runTraceT m = pogoStick traceInstr (unTrace m)
-    where traceInstr (Yield i c) =  traceCommand i >> c
+trace m = do 
+    p <- gets reg_p
+    i <- get_instr p
+    a <- m
+    trace' (p,i)
+    return a
+-}
+
+runTraceT t m = pogoStick traceInstr (unTrace m)
+    where traceInstr (Yield i c) =  t i >> c
 --    where traceInstr (Yield _ c) = c
+
+runNoTraceT m = runTraceT (\_ -> return ()) m
 
 instance Monad m => Monad (TraceT s' m) where
     return  = TraceT . return
@@ -87,10 +105,23 @@ pprCell i = do
        _ ->
             error ("cannot print " ++ show v)
 
+trim n p =
+    let r = render p
+    in if length r <= n
+       then p
+       else text $ take (n-3) r ++ "..."
+        
+
+traceRegs regs = do
+    regReps <- mapM (\(r, c) -> pprCell c  >>= \c' -> return (pprReg r, c')) regs
+    return $ brackets (sep $ punctuate comma $ map (\(r,c)-> r <+> text "=" <+> trim 20 c) regReps)
+
 {- p : command : { register values }  -}
 
-traceCommand i = do
-    liftIO $ putStr (render $ pprInstr i)
+traceCommand (p,i) = do
+    cont <- mapM get_content (getReg i)
+    regs <- traceRegs $ zip (getReg i) cont
+    liftIO $ putStr (render $ (int p) $$ nest 5 (pprInstr i) $$ nest 35 regs)
     liftIO $ putStr "\n"
 --    let (_,rs) = i
 --    rs' <- mapM (\i -> get_content i >>= dumpCell) rs

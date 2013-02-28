@@ -37,6 +37,9 @@ type WamArg = WamRegister
 -- WAM Instruction
 type WamInstr = (WamOp, [WamArg])
 
+getOp  (op, _)   = op
+getReg (_, regs) = regs
+
 data WamRegister = 
     Perm Int 
   | Temp Int 

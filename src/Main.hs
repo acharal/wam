@@ -20,7 +20,7 @@ import Prolog.Parser
 import WAM.Instruction
 import WAM.Compile (wamCompileProg, wamCompileGoal)
 import WAM.Runtime (evalWam, wamExecute)
-import WAM.Runtime.Trace (dumpCell, runTraceT, runNoTraceT, traceCommand)
+import WAM.Runtime.Trace (dumpCell, runTraceT, traceCommand)
 import WAM.Emit (wamEmitProg)
 
 import System.IO
@@ -39,7 +39,8 @@ data Options = Options {
     outputFile :: Maybe String,
     wamFile :: Maybe String,
     onlyCompile :: Bool,
-    verbose :: Bool
+    verbose :: Bool,
+    trace :: Bool
 }
 
 options :: [ OptDescr (Options -> IO Options) ]
@@ -50,6 +51,8 @@ options = [
         "output file",
     Option ['c'] ["compile"] (NoArg (\opt -> return opt{onlyCompile = True}))
         "just compile not run",
+    Option ['t'] ["trace"]   (NoArg (\opt -> return opt{trace = True}))
+        "show trace",
     Option ['w'] ["wam"]     (ReqArg (\arg opt -> return opt{wamFile = Just arg}) "FILE")
         "wam file to run",
     Option ['V'] ["version"] (NoArg (\_ -> do
@@ -76,7 +79,8 @@ main = do
                                  outputFile = Nothing,
                                  wamFile = Nothing,
                                  onlyCompile = False,
-                                 verbose = False
+                                 verbose = False,
+                                 trace = False
                                }
 
     let (actions,_,_) = getOpt Permute options args
@@ -86,6 +90,7 @@ main = do
     let Options { inputFile = input
                 , outputFile = output
                 , onlyCompile = onlycompile 
+                , trace = withTrace
                 } = opts
 
     h  <- openFile input ReadMode
@@ -109,7 +114,7 @@ main = do
             hClose ho
 
     when (onlycompile == False) $
-        runWam compiled
+        runWam withTrace compiled
 
 printWamVars gs = 
     let printBinding (v,i) = do
@@ -117,8 +122,10 @@ printWamVars gs =
             liftIO $ putStr (v ++ "=" ++ cell ++ "\n")
     in mapM_ printBinding gs
 
-runWam (compiledGoal, compiledProg) = 
-    evalWam $ runTraceT traceCommand $  do 
+runWam trace (compiledGoal, compiledProg) = 
+    let run m = if trace then evalWam (runTraceT traceCommand m) else evalWam (runTraceT notrace m)
+        notrace a = return ()
+    in run $ do 
         gs <- wamExecute compiledProg compiledGoal
         printWamVars gs
 

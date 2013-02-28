@@ -44,7 +44,6 @@ runTraceT t m = pogoStick traceInstr (unTrace m)
     where traceInstr (Yield i c) =  t i >> c
 --    where traceInstr (Yield _ c) = c
 
-runNoTraceT m = runTraceT (\_ -> return ()) m
 
 instance Monad m => Monad (TraceT s' m) where
     return  = TraceT . return

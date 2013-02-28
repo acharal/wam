@@ -89,43 +89,57 @@ main = do
 
     let Options { inputFile = input
                 , outputFile = output
-                , onlyCompile = onlycompile 
-                , trace = withTrace
+                , onlyCompile = onlycompile
                 } = opts
 
-    h  <- openFile input ReadMode
-    fl <- hGetContents h
-
-    compiled <-
-        case parseprolog "error" fl of
-            Right (g, p) -> 
-                return $ (wamCompileGoal g 0, wamCompileProg p)
-            Left y -> do
-                print y
-                exitWith (ExitFailure 1)
+    compiled <- compilePrologFromFile input
 
     case output of
-        Nothing -> 
-            when (verbose opts) $
-                putStr (wamEmitProg compiled)
-        Just out -> do
-            ho <- openFile out WriteMode
-            hPutStr ho $ wamEmitProg compiled
-            hClose ho
+        Nothing -> when (verbose opts) (outputWam compiled output)
+        Just _  -> outputWam compiled output
 
     when (onlycompile == False) $
-        runWam withTrace compiled
+        runWam (trace opts) compiled
 
-printWamVars gs = 
+
+compilePrologFromFile filename =
+    withFile filename ReadMode $ \hdl -> do
+        content <- hGetContents hdl
+        compileProlog content
+
+compileProlog prog = 
+    case parseprolog "error" prog of
+        Right (g, p) ->
+            return $ (wamCompileGoal g 0, wamCompileProg p)
+        Left y -> do
+            print y
+            exitWith (ExitFailure 1)
+
+outputWam prog out = 
+    let writeProg ho prog = do 
+            hPutStr ho $ wamEmitProg prog
+            hClose ho
+        openHandle (Just filename) = openFile filename WriteMode
+        openHandle Nothing         = return stdout
+    in do 
+        ho <- openHandle out
+        writeProg ho prog
+
+outputWamVars gs = 
     let printBinding (v,i) = do
             cell <- dumpCell i
             liftIO $ putStr (v ++ "=" ++ cell ++ "\n")
     in mapM_ printBinding gs
 
 runWam trace (compiledGoal, compiledProg) = 
-    let run m = if trace then evalWam (runTraceT traceCommand m) else evalWam (runTraceT notrace m)
+    let run = evalWam . runTrace 
+        runTrace  = 
+            if trace 
+            then runTraceT traceCommand 
+            else runTraceT notrace
+
         notrace a = return ()
     in run $ do 
         gs <- wamExecute compiledProg compiledGoal
-        printWamVars gs
+        outputWamVars gs
 

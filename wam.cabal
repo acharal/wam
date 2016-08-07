@@ -40,7 +40,8 @@ other-modules:  WAM
                 Prolog
 extensions: DoAndIfThenElse,
 	    NoMonomorphismRestriction,
-            FlexibleInstances,
+            FlexibleInstances, 
+            FlexibleContexts,
             MultiParamTypeClasses,
             UndecidableInstances
 ghc-prof-options: -prof -auto-all

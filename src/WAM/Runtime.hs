@@ -25,9 +25,17 @@ import WAM.Runtime.Trace (MonadTrace, trace)
 
 import Control.Monad
 import Control.Monad.State
+import Control.Applicative
 
 -- type WamRuntime = StateT WamState (ContT () IO)
 newtype WamRuntime c i a = WamRuntime { unWam :: (StateT (WamState c i) IO a) }
+
+instance Functor (WamRuntime c i) where
+        fmap f a = WamRuntime $ liftM f (unWam a)
+
+instance Applicative (WamRuntime c i) where
+        pure a = WamRuntime $ return a 
+        (<*>)  = ap
 
 instance Monad (WamRuntime c i) where
 	return s = WamRuntime $ return s

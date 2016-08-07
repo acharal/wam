@@ -1,8 +1,12 @@
-# A Simple Prolog Compiler to WAM
+# A Simple PROLOG Compiler to WAM
 
-[WAM (Warren Abstract Machine)][1] is an efficient popular abstract machine
+[![GitHub license](https://img.shields.io/badge/license-GPLv2-blue.svg)](https://raw.githubusercontent.com/acharal/wam/master/LICENSE)
+[![Build Status](https://travis-ci.org/acharal/wam.svg?branch=master)](https://travis-ci.org/acharal/wam)
+
+
+[WAM][1] (Warren Abstract Machine) is an efficient popular abstract machine
 to compile Prolog logic programs and is implemented in almost 
-all industrial-strength Prolog compilers such as [SWI-Prolog][2] and [YAP][3].
+all industrial-strength PROLOG compilers such as [SWI-Prolog][2] and [YAP][3].
 
 This interpreter contains the compilation and runtime of WAM instructions
 based on the definition in [Russinoff 1992][4]. The interpreter is developed
@@ -11,11 +15,37 @@ extensions in WAM.
 
 # Getting Started
 
-The compilation of the WAM interpreter is distributed as a cabal package.
-To compile type:
 
-    cabal configure
-    cabal build
+## Building
+
+To build the WAM compiler you should have a system with GHC and cabal.
+The following sequence of commands will build the compiler after installing
+any dependencies needed.
+```bash
+$ cabal update
+$ cabal install --only-dependencies
+$ cabal configure && cabal build
+```
+
+## Compile an example to WAM
+
+After a successfull build the compiler will reside by default in `./dist/build/wam/wam`.
+You can add the directory to your current path, i.e.
+```bash
+$ export PATH=`pwd`/dist/build/wam:$PATH
+```
+To compile a PROLOG program to WAM you should issue:
+```bash
+$ wam -c -i prog.pl -o output.wam
+```
+where `prog.pl` is your initial PROLOG source file, `output.wam` is the
+name of the output file that will contain WAM bytecode. The switch `-c` will
+only compile the program but not run. On the other hand if you omit `-c`,
+namely
+```bash
+$ wam -i prog.pl -o output.wam
+```
+the program will also be executed after the compilation.
 
 # Features and Limitations
 
@@ -26,15 +56,12 @@ Compilations supports some basic optimizations such as
 
 ## Limitations
 
-There are also some features of WAM that are not yet supported such as
+There are also some features of WAM that are not yet supported such as:
 
  * There are no special instructions for lists (get_list, put_list).
  * No environment trimming.
  * No indexing at the switch-operators
  * No cut functionality
-
-## Other limitations
-
  * No garbage collection has been implemented.
  * A subset of the ISO-Prolog is supported and compiled. No build-in predicates
    are supported, neither user-defined operators.

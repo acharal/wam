@@ -35,6 +35,7 @@ data Type = TypeO | TypeI | F Type Type deriving Show
 varsTerm t = nub $ vars' t
     where vars' (T (_, ts)) = concatMap vars' ts
           vars' (V v) = [v]
+          vars' (V2 (var, ts)) = [var] ++ concatMap vars' ts
 
 varsClause (t, ts) = nub $ varsTerm t ++ concatMap varsTerm ts
 
@@ -46,6 +47,8 @@ defs cs (p,n) =  filter isOfPred cs
     where isOfPred (T (s,args),_) = s == p && length args == n
 
 args (T (_, x))    = x
+args (V _)         = []
+args (V2 (_, x))   = x
 functor (T (x, _)) = x
 
 -- types

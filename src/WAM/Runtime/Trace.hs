@@ -8,6 +8,7 @@ import Control.Applicative (Applicative(..))
 import WAM.Instruction
 import WAM.Emit
 import WAM.Runtime.Mem
+import Debug.Trace(traceShow)
 
 import Text.PrettyPrint hiding (Str)
 
@@ -104,17 +105,44 @@ pprCell i = do
             cs <- get_cells (i+1) arity
             ss <- mapM pprCell cs
             return $ text funct <> parens (sep $ punctuate comma ss)
-       Cons a -> 
-            return (text a)
-       _ ->
-            error ("cannot print " ++ show v)
+       Cons a -> return (text a)
+       App a -> pprPartial a []
+       Hov a -> pprHov a
+       _ -> error ("cannot print " ++ show v)
+
+pprPartial i args = do
+    AppStr n <- get_cell i
+    nextPtr <- get_cell (i+1)
+    next <- deref' nextPtr
+    args' <- get_cells (i+2) n
+    case next of
+        App p -> do
+            pprPartial p $ args' ++ args
+        _ -> do
+            cs <- pprCell next
+            ss <- mapM pprCell $ args' ++ args
+            return $ parens (sep $ punctuate comma ss) <> text "@" <> parens(cs)
+
+pprHov a = do
+    Hovaty n <- get_cell a
+    let start = a + 1
+    Var top <- get_cell start
+    stuff <- pprHovImpl start top n
+    return $ braces (sep $ punctuate comma stuff)
+
+pprHovImpl start curr n = do
+    if (start >= curr) then return [] else do
+        Var prev <- get_cell curr
+        args <- get_cells (curr+1) n
+        args_pretty <- mapM pprCell $ args
+        rest <- pprHovImpl start prev n
+        return $ parens (sep $ punctuate comma args_pretty) : rest
 
 trim n p =
     let r = render p
     in if length r <= n
        then p
        else text $ take (n-3) r ++ "..."
-        
 
 traceRegs regs = do
     regReps <- mapM (\(r, c) -> pprCell c  >>= \c' -> return (pprReg r, c')) regs

@@ -21,7 +21,7 @@ import Prolog (VarId)
 import WAM
 import WAM.Runtime.Mem
 import WAM.Runtime.Trace (MonadTrace, trace)
-
+import Debug.Trace(traceShow)
 
 import Control.Monad
 import Control.Monad.State
@@ -172,7 +172,6 @@ deref a =
     where unBound x (Var y) = (x == y)
           unBound _ _ = False
 
-
 allocate n = do
     b <- gets reg_b
     e <- gets reg_e
@@ -180,8 +179,8 @@ allocate n = do
     c <- gets reg_c
     e <- gets reg_e
     mapM_ create_unbound [k+1..k+n]
-    change_cell (k+n+1) (Addr c)
-    change_cell (k+n+2) (Addr e)
+    change_cell (k+n+1) (Addr False c)
+    change_cell (k+n+2) (Addr False e)
     modify (\s -> s{reg_e = k + n + 2})
 
 
@@ -189,8 +188,8 @@ deallocate = do
     e  <- gets reg_e
     let k = e
     --(Addr k)  <- get_cell e
-    (Addr e') <- get_cell k
-    (Addr c') <- get_cell (k-1)
+    (Addr _ e') <- get_cell k
+    (Addr _ c') <- get_cell (k-1)
     modify (\s -> s{reg_e = e', reg_c = c'})
 
 
@@ -207,23 +206,67 @@ execute (q,n) = do
 
 call q = set_return_address >> execute q
 
-execute_variable r n =
-    let execute' x n = do
-            dx <- deref x
-            case dx of
-                App a m -> do
-                    app <- get_cell a
-                    mapM_ (\i -> restore_arg (a+m+1-i) (n+i)) [1..m]
-                    execute' app (n+m)
-                Struct str -> 
-                    execute str
-                Var v -> 
-                    unexpected "Uninstantiated higher order variable"
+execute_variable r =
+    let execute' x args = do
+        dx <- deref x
+        case dx of
+            App addr -> do
+                AppStr num_args <- get_cell addr
+                next <- get_cell $ addr + 1
+                args' <- mapM (\i -> get_cell $ addr + 1 + i) [1..num_args]
+                execute' next $ args ++ args'
+            Str addr -> do
+                Struct (f, n) <- get_cell addr
+                args' <- mapM (\i -> get_cell $ addr + i) [1..n]
+                let total_args = args' ++ args
+                mapM_ (\(i, c) -> set_temp i c) $ zip [1..] total_args
+                execute (f, length total_args)
+            Cons c -> do
+                mapM_ (\(i, c) -> set_temp i c) $ zip [1..] args
+                execute (c, length args)
+            Var v -> do
+                h <- gets reg_h
+                change_cell (h+1) (Hovaty $ length args)
+                change_cell (h+2) (Var $ h + 2)
+                modify (\st -> st{ reg_h = h + 3 })
+                bind (v) (Hov $ h + 1)
+                appendTuple (h + 1) args
+                proceed
+            Hov h -> do
+                Hovaty n <- get_cell h
+                when (n /= length args) $ do
+                    unexpected "Number of arguments do not match"
+                appendTuple h (traceShow args args)
+                proceed
+            _ -> unexpected "Expected application, structure or higher order variable"
     in do
         x <- get_content r
-        execute' x n
+        execute' x []
 
-call_variable x n = set_return_address >> execute_variable x n
+call_variable x = set_return_address >> execute_variable x
+
+appendTuple x args = do
+    Hovaty n <- get_cell x
+    let next_ptr = x + 1
+    Var top <- get_cell next_ptr
+
+    h <- gets reg_h
+
+    change_cell (h+1) (Var top)
+    mapM_ (\(i, c) -> change_cell i c) $ zip [(h+2)..] args
+    modify (\st -> st{ reg_h = h + n + 1 })
+    change_cell next_ptr (Var $ h + 1)
+
+    t <- gets reg_t
+    modify (\st -> st{reg_t = t + 1})
+    change_cell (t + 1) (Addr True x)
+
+removeHeadTuple x = do
+    Hovaty n <- get_cell x
+    let nextPtr = x + 1
+    Var top <- get_cell nextPtr
+    Var newTop <- get_cell top
+    change_cell nextPtr (Var newTop)
 
 bind' (Temp i) x = set_temp i x
 bind' (Perm i) x = get_perm_real_addr i >>= \a -> bind a x
@@ -234,11 +277,11 @@ bind a x =
             b <- gets reg_b
             hasChoice <- hasChoicePoint
             when hasChoice $ do
-                (Addr ss) <- get_cell (b-2)
+                (Addr _ ss) <- get_cell (b-2)
                 when (a < ss || a <= b) $ do
                     t <- gets reg_t
                     modify (\st -> st{reg_t = t + 1})
-                    change_cell (t + 1) (Addr a)
+                    change_cell (t + 1) (Addr False a)
     in do
        trail a
        change_cell a x
@@ -353,7 +396,7 @@ put_variable z@(Perm i) x = do
 
 is_unstable (Var r) = do
     e <- gets reg_e
-    (Addr e') <- get_cell e
+    (Addr _ e') <- get_cell e
     return (e' < r)
 
 is_unstable _ = return False
@@ -378,6 +421,19 @@ put_structure f z = do
     h <- gets reg_h
     push_structure f
     hc <- get_cell (h+1)
+    bind' z hc
+
+put_application n x z = do
+    content <- get_content x
+    h <- gets reg_h
+    change_cell (h+1) (AppStr n)
+    change_cell (h+2) content
+    mapM_ create_unbound [(h+3)..(h+n+2)]
+    change_cell (h+n+3) (App $ h + 1)
+    modify (\st -> st{ reg_h = h + n + 3
+                     , reg_s = h + 3
+                     })
+    hc <- get_cell (h+n+3)
     bind' z hc
 
 unify_variable z = do
@@ -412,35 +468,38 @@ try_me_else p = do
     save_reg (ka+4) reg_c
     save_reg (ka+5) reg_h
     save_reg (ka+6) reg_b
-    change_cell (ka+7) (Addr p)
+    change_cell (ka+7) (Addr False p)
     modify (\s -> s{reg_b = ka + 7})
 
 retry_me_else p = do
     b <- gets reg_b
-    change_cell b (Addr p)
+    change_cell b (Addr False p)
 
 trust_me_else_fail = do
     b <- gets reg_b
-    (Addr b') <- get_cell (b-1)
+    (Addr _ b') <- get_cell (b-1)
     modify (\s->s{reg_b = b'})
 
 unwind t = do
     t' <- gets reg_t
     when (t' > t) $ do
-        ts <- mapM get_cell [t+1..t']
-        mapM_ (create_unbound) (map (\(Addr a)->a) ts)
+        forM_ [t+1..t'] $ \i -> do
+            (Addr hov a) <- get_cell i
+            case hov of
+                True -> do removeHeadTuple $ a
+                False -> do create_unbound $ a
         modify (\s -> s{reg_t = t})
 
 -- backtrack :: WamRuntime ()
 backtrack = do
     k <- gets reg_b
-    (Addr p) <- get_cell k
-    (Addr b) <- get_cell (k-1)
-    (Addr h) <- get_cell (k-2)
-    (Addr c) <- get_cell (k-3)
-    (Addr t) <- get_cell (k-4)
-    (Addr e) <- get_cell (k-5)
-    (Addr a) <- get_cell (k-6)
+    (Addr _ p) <- get_cell k
+    (Addr _ b) <- get_cell (k-1)
+    (Addr _ h) <- get_cell (k-2)
+    (Addr _ c) <- get_cell (k-3)
+    (Addr _ t) <- get_cell (k-4)
+    (Addr _ e) <- get_cell (k-5)
+    (Addr _ a) <- get_cell (k-6)
     mapM_ (\i -> restore_arg (k-7-a+i) i) [1..a]
     unwind t
     modify (\s -> s{ reg_p = p
@@ -455,26 +514,29 @@ backtrack = do
 sem :: WamInstr         -- ^ the wam instruction
     -> WamRuntime () 
 -}
-sem (Allocate n, _)         = allocate n
-sem (Deallocate, _)         = deallocate
-sem (Proceed, _)            = proceed
-sem (Call s, _)             = call s
-sem (Execute s, _)          = execute s
-sem (TryMeElse n, _)        = try_me_else n
-sem (RetryMeElse n, _)      = retry_me_else n
-sem (TrustMe, _)            = trust_me_else_fail
-sem (Backtrack, _)          = backtrack
-sem (GetConstant s, [z])    = get_constant (Cons s) z
-sem (GetVariable, [x,z])    = get_variable x z
-sem (GetValue, [x,z])       = get_value x z
-sem (GetStructure f, [x])   = get_structure f x
-sem (PutValue, [x,z])       = put_value x z
-sem (PutUnsafeValue, [x,z]) = put_unsafe_value x z
-sem (PutVariable, [x,z])    = put_variable x z
-sem (PutStructure f, [x])   = put_structure f x
-sem (PutConstant c, [x])    = put_constant (Cons c) x
-sem (UnifyConstant c,_)     = unify_constant (Cons c)
-sem (UnifyValue, [x])       = unify_value x
-sem (UnifyVariable, [x])    = unify_variable x
-sem x                       = unexpected $ "unknown instruction " ++ show x
+sem (Allocate n, _)             = allocate n
+sem (Deallocate, _)             = deallocate
+sem (Proceed, _)                = proceed
+sem (Call s, _)                 = call s
+sem (CallVariable, [x])         = call_variable x
+sem (Execute s, _)              = execute s
+sem (ExecuteVariable, [x])      = execute_variable x
+sem (TryMeElse n, _)            = try_me_else n
+sem (RetryMeElse n, _)          = retry_me_else n
+sem (TrustMe, _)                = trust_me_else_fail
+sem (Backtrack, _)              = backtrack
+sem (GetConstant s, [z])        = get_constant (Cons s) z
+sem (GetVariable, [x,z])        = get_variable x z
+sem (GetValue, [x,z])           = get_value x z
+sem (GetStructure f, [x])       = get_structure f x
+sem (PutValue, [x,z])           = put_value x z
+sem (PutUnsafeValue, [x,z])     = put_unsafe_value x z
+sem (PutVariable, [x,z])        = put_variable x z
+sem (PutStructure f, [x])       = put_structure f x
+sem (PutConstant c, [x])        = put_constant (Cons c) x
+sem (PutApplication n, [x, z])  = put_application n x z
+sem (UnifyConstant c,_)         = unify_constant (Cons c)
+sem (UnifyValue, [x])           = unify_value x
+sem (UnifyVariable, [x])        = unify_variable x
+sem x                           = unexpected $ "unknown instruction " ++ show x
 

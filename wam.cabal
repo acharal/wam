@@ -1,49 +1,72 @@
-name: 		    wam
-version: 	    0.0.1
-build-type: 	Simple
-license: 	    GPL
-license-file: 	LICENSE
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 0fb3a488b1969d8904d4e43980cc236f0e6a6ea327806c092ec867947b411f36
+
+name:           wam
+version:        0.0.1
 synopsis:       Simple Prolog Compiler to WAM
-description:
-    A simple Prolog compiler to WAM
-
-copyright: 	    2012 Angelos Charalambidis
-maintainer: 	Angelos Charalambidis <a.charalambidis@di.uoa.gr>
-author:		    Angelos Charalambidis <a.charalambidis@di.uoa.gr>
-stability:      Experimental
+description:    A simple Prolog compiler to WAM
 category:       Compilers/Interpreters
-homepage:       https://github.com/acharal/wam
+homepage:       https://github.com/acharal/wam#readme
 bug-reports:    https://github.com/acharal/wam/issues
-
-build-depends: array -any, transformers -any, mtl -any,
-               parsec -any, base -any, pretty -any,
-               monad-coroutine >= 0.6
-package-url:
-
-
-tested-with: 
-data-files:
-data-dir: ""
+author:         Angelos Charalambidis
+maintainer:     a.charalambidis@di.uoa.gr
+copyright:      2012 Angelos Charalambidis
+license:        GPL
+license-file:   LICENSE
+build-type:     Simple
 extra-source-files:
-extra-tmp-files:
- 
-executable: wam
-main-is: Main.hs
-buildable: True
-hs-source-dirs: src
-other-modules:  WAM 
-                WAM.Runtime 
-		WAM.Runtime.Trace
-                WAM.Compile 
-                WAM.Emit
-                WAM.Instruction
-                Prolog
-extensions: DoAndIfThenElse,
-	    NoMonomorphismRestriction,
-            FlexibleInstances, 
-            FlexibleContexts,
-            MultiParamTypeClasses,
-            UndecidableInstances
-ghc-prof-options: -prof -auto-all
-ghc-shared-options:
-ghc-options:
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/acharal/wam
+
+executable wam
+  main-is: Main.hs
+  other-modules:
+      Prolog
+      Prolog.Parser
+      WAM
+      WAM.Compile
+      WAM.Emit
+      WAM.Instruction
+      WAM.Runtime
+      WAM.Runtime.Mem
+      WAM.Runtime.Stats
+      WAM.Runtime.Trace
+      Paths_wam
+  hs-source-dirs:
+      src
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -XMultiParamTypeClasses -XFlexibleInstances -XFlexibleContexts -XUndecidableInstances -XDoAndIfThenElse -XNoMonomorphismRestriction
+  build-depends:
+      array
+    , base >=3 && <4.11
+    , monad-coroutine
+    , mtl
+    , parsec
+    , pretty
+    , transformers
+  default-language: Haskell2010
+
+test-suite wam-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_wam
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      array
+    , base >=3 && <4.11
+    , monad-coroutine
+    , mtl
+    , parsec
+    , pretty
+    , transformers
+  default-language: Haskell2010

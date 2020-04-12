@@ -22,7 +22,6 @@ import WAM
 import System.IO
 import Data.List (nub, delete, (\\))
 import Data.Maybe (fromJust)
-import Debug.Trace
 
 
 import Control.Monad
@@ -30,21 +29,23 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
 
+import Debug.Trace
+
 type WamCompile a = ReaderT WamCompEnv (StateT WamCompState Identity) a
 
 type WamSymbolTable = [(VarId,WamRegister)]
 
-data WamCompEnv = WamCompEnv 
-    {   perms'    :: [VarId]       -- ^ permanent variables    
+data WamCompEnv = WamCompEnv
+    {   perms'    :: [VarId]       -- ^ permanent variables
     }
 
 data WamCompState = WamCompState
-    {   symbolTbl :: WamSymbolTable -- ^ mapping between clause variables and wamregisters 
+    {   symbolTbl :: WamSymbolTable -- ^ mapping between clause variables and wamregisters
     ,   unsafe'   :: [VarId]        -- ^ unsafe variables
     }
 
 -- | Returns the permanent variables from a clause
--- | permanent variables are computed as described below : 
+-- | permanent variables are computed as described below :
 -- | those that exist in more that one body literals
 -- | assuming that the head literal and the first body literal are considered as one
 -- | body literal.
@@ -56,7 +57,7 @@ perms (t, ts) =
                   [] -> [varsHead]
                   (v:vs) -> (nub (varsHead ++ v)):vs
         aux [] = []
-        aux (l:ls) = (filter (`elem` l') l) ++ aux ls 
+        aux (l:ls) = (filter (`elem` l') l) ++ aux ls
             where l' = concat ls
     in nub $ aux lst
 
@@ -73,14 +74,16 @@ safe (h, b)  = nub $ varsTerm h  ++ varsNotL ++ varsInCompound
           vl = varsTerm l
           varsNotL = varsClause (h,b) \\ vl
           varsInCompound = concat $ inCompound $ concatMap args (h:b)
-  
+
           inCompound [] = []
-          inCompound (t:ts) =  
+          inCompound (t:ts) =
                 case t of
-                    T (s,args) -> 
+                    T (s,args) ->
                         nub $ map varsTerm args ++ inCompound ts
-                    V _ -> 
+                    V _ ->
                         inCompound ts
+                    V2 (v, args) ->
+                        nub $ map varsTerm args ++ inCompound ts
 
 -- | Returns the "unsafe" variables
 unsafe :: Clause -> [VarId]
@@ -94,14 +97,14 @@ isPerm _ = False
 
 isTemp v = not (isPerm v)
 
-newVar r n v = do 
+newVar r n v = do
 
     pe <- asks perms'
     p  <- if v `elem` pe then
              newPerm
           else
              newTemp r n
-    
+
     tbl <- gets symbolTbl
 
     let tbl' = (v,p):tbl
@@ -128,7 +131,7 @@ newTemp r m = do
         return $ Temp (n + 1)
 
 -- | Converts a term into a label. eg p(a,b,c) to p/3
-termToLabel :: Term -> WamLabel 
+termToLabel :: Term -> WamLabel
 termToLabel (T (s, args)) = (s, length args)
 termToLabel _ = error "cannot convert to wamlabel"
 
@@ -138,7 +141,7 @@ termToLabel _ = error "cannot convert to wamlabel"
 wamCompileLit :: Bool               -- ^  h is a bool - if true then compilation is a "get" else is a "put" mode
               -> [Term]             -- ^  a list of literals to compile
               -> [WamRegister]      -- ^  a list of wam registers to assign to literals (one register for one literal)
-              -> Int                -- ^  a maximum integer used to assign new variables 
+              -> Int                -- ^  a maximum integer used to assign new variables
               -> WamCompile WamInstrSeq  -- ^  the output sequence of wam instructions
 wamCompileLit h [] _ _  = return []
 wamCompileLit h (t:ts) (r:rs) n =
@@ -156,39 +159,51 @@ wamCompileLit h (t:ts) (r:rs) n =
                      Temp i -> do
                         if i > n -- not an argument Temp 1...Temp n is reserved for procedural calls
                         then return (GetStructure (termToLabel t), [r])
-                        else return (opStructure  (termToLabel t), [r]) 
+                        else return (opStructure  (termToLabel t), [r])
                      _ -> do
-                             return (opStructure  (termToLabel t), [r]) 
+                             return (opStructure  (termToLabel t), [r])
             rest <- wamCompileTerm h args ts rs n
             return (str:rest)
-         V v -> do 
+         V v -> do
             tbl <- gets symbolTbl
             case lookup v tbl of
                Just z -> do
                     u <- gets unsafe'
                     if  v `elem` u
-                    then do 
+                    then do
                         modify (\st -> st{unsafe' = (delete v u)})
                         rest <- wamCompileLit h ts rs n
                         return $ (PutUnsafeValue, [z,r]) : rest
                     else do
                         rest <- wamCompileLit h ts rs n
                         return $ (opValue,        [z,r]) : rest
-               Nothing -> do 
+               Nothing -> do
                     z <- newVar (r:rs) n v
                     rest <- wamCompileLit h ts rs n
                     return $ (opVariable, [z,r]) : rest
+         V2 (v, args) -> do
+            tbl <- gets symbolTbl
+            case lookup v tbl of
+               Just z -> do
+                    rest <- wamCompileTerm h args ts rs n
+                    return $ (PutApplication (length args), [z, r]) : rest
+               Nothing -> do
+                    z <- newVar (r:rs) n v
+                    rest <- wamCompileTerm h args ts rs n
+                    return $ [
+                            (PutVariable, [z, z]),
+                            (PutApplication (length args), [z, r])
+                        ] ++ rest
 
 -- | Compiles head literals
 wamCompileHeadLit ts n = wamCompileLit True ts xs n
    where n' = length ts
-         xs = map Temp $ reverse [1..n']
-
+         xs = map Temp [1..n']
 
 -- | Compiles a goal literal
 wamCompileGoalLit ts = wamCompileLit False ts xs n
    where n  = length ts
-         xs = map Temp $ reverse [1..n]
+         xs = map Temp [1..n]
 
 -- | Compiles a term
 wamCompileTerm :: Bool               -- ^  h is a bool - if true then compilation is a "get" else is a "put" mode
@@ -216,36 +231,55 @@ wamCompileTerm h (a:as) ts rs n =
                 Nothing -> do
                     z <- newVar rs n v
                     rest <- wamCompileTerm h as ts rs n
-                    return $ (UnifyVariable, [z]):rest 
+                    return $ (UnifyVariable, [z]):rest
+       V2 (v, args) -> do
+            tbl <- gets symbolTbl
+            case lookup v tbl of
+                Just z -> do
+                    rest <- wamCompileTerm h as (a:ts) (z:rs) n
+                    return $ (UnifyValue, [z]) : rest
+                Nothing -> do
+                    z <- newVar rs n v
+                    rest <- wamCompileTerm h as (a:ts) (z:rs) n
+                    return $ (UnifyVariable, [z]) : rest
 
 -- | Compiles the body consisted of many body literals
 wamCompileBody [] _  = return [(Proceed, [])]
-wamCompileBody [g] e =
-   let c' = if e 
-            then (Deallocate,[]):c 
-            else c
-           where c = [(Execute (termToLabel g), [])]
-   in do 
-         cc <- wamCompileGoalLit (args g)
-         return $ cc ++ c'
+wamCompileBody [g] e = do
+     cc <- case g of
+        T _ -> wamCompileGoalLit (args g)
+        V v -> wamCompileGoalLit [g]
+        V2 _ -> wamCompileGoalLit [g]
+     c <- case g of
+        T _       -> return $ [(Execute (termToLabel g), [])]
+        V v       -> return $ [(ExecuteVariable, [Temp 1])]
+        V2 (v, _) -> return $ [(ExecuteVariable, [Temp 1])]
+     let c' = if e then (Deallocate,[]):c else c
+
+     return $ cc ++ c'
 
 wamCompileBody (g:gs) e = do
-      c <- wamCompileGoalLit (args g)
-
-      let c' = c ++ [(Call (termToLabel g), [])]
+      prologue <- case g of
+        T _ -> wamCompileGoalLit (args g)
+        V v -> wamCompileGoalLit [g]
+        V2 _ -> wamCompileGoalLit [g]
+      c <- case g of
+        T _       -> return $ [(Call (termToLabel g), [])]
+        V v       -> return $ [(CallVariable, [Temp 1])]
+        V2 (v, _) -> return $ [(CallVariable, [Temp 1])]
 
       modify (\st -> st{symbolTbl = filter (isPerm.snd) (symbolTbl st)})
       cc <- wamCompileBody gs e
 
-      return (c' ++ cc)
+      return (prologue ++ c ++ cc)
 
 
 -- | Compiles a clause
 wamCompileClause cl@(h,b) =
-   let  
+   let
         -- n registers are reserved for arguments of first literal in body (?)
         n = if isFact
-            then 0 
+            then 0
             else length (args (head b))
 
         isFact       = length b < 1
@@ -256,7 +290,7 @@ wamCompileClause cl@(h,b) =
         permans = perms cl
         unsafes = unsafe cl
 
-   in do 
+   in do
 
         local (\r -> r{ perms' = permans }) $ do
             modify (\st -> st { symbolTbl = []
@@ -278,10 +312,10 @@ wamCompileAlters (l:ls) i = do
     case ls of
         [] -> do
             return $ (TrustMe,[]):c
-        _ ->  do 
+        _ ->  do
             let j  = i + length c + 1
             let c' = (RetryMeElse j,[]):c
-            alters <- wamCompileAlters ls j            
+            alters <- wamCompileAlters ls j
             return $ c' ++ alters
 
 
@@ -302,7 +336,7 @@ wamCompileDefs :: [WamLabel]      -- ^ list of predicate names to compile
                -> WamCompile [WamInstrSeq] -- ^ returns a list of instruction sequence, one for each predicate
 wamCompileDefs [] p i = return []
 wamCompileDefs (q:qs) p i = do
-       c <- wamCompilePredicate (defs p q) i 
+       c <- wamCompilePredicate (defs p q) i
        let j  = i + length c
        defs <- wamCompileDefs qs p j
        return $ c : defs
@@ -312,7 +346,7 @@ wamCompile m = runIdentity (evalStateT (runReaderT m emptyEnv) emptyState)
           emptyEnv   = WamCompEnv   { perms' = [] }
 
 -- | Compiles a logic program consisting of many definitions
-wamCompileProg :: [Clause] 
+wamCompileProg :: [Clause]
                -> WamProgram
 wamCompileProg p =
    let ps = preds p
@@ -320,13 +354,13 @@ wamCompileProg p =
        cs = wamCompile (wamCompileDefs ps p i)
    in mkDB $ zip ps cs
 
-wamCompileGoal :: Goal 
-               -> Int 
+wamCompileGoal :: Goal
+               -> Int
                -> WamGoal
-wamCompileGoal g i = 
+wamCompileGoal g i =
     let g'  = (T ("?", vg'), g)
         vg' = map V $ vg
         vg  = varsGoal g
-    in (reverse vg, wamCompile (wamCompilePredicate [g'] i))
+    in (vg, wamCompile (wamCompilePredicate [g'] i))
 
 

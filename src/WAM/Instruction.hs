@@ -10,6 +10,7 @@ data WamOp =
      PutVariable
    | PutValue
    | PutUnsafeValue
+   | PutApplication Int
    | PutStructure WamLabel
    | PutConstant String
    | GetStructure WamLabel

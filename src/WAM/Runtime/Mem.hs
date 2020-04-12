@@ -10,8 +10,11 @@ data WamCell =
      | Var WamAddress           -- REF n
      | Str WamAddress           -- STR n
      | Cons String              -- CONS s
-     | App WamAddress Int       -- APP n m
-     | Addr WamAddress
+     | App WamAddress           -- APP n
+     | AppStr Int               -- APPSTR m
+     | Hov WamAddress           -- HOV m
+     | Hovaty WamAddress        -- HOVATY n
+     | Addr Bool WamAddress
      deriving (Eq, Show)
 
 isVarCell (Var _) = True
@@ -93,7 +96,7 @@ get_cells start count = mapM get_cell [start..(start+count-1)]
 -- | saves the content of a register in the cell in memory
 save_reg i r = do
     a <- gets r
-    change_cell i (Addr a)
+    change_cell i (Addr False a)
 
 get_temp i = do
     rs <- gets regs
